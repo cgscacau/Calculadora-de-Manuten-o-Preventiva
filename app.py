@@ -1,7 +1,7 @@
 """
 Calculadora de Manutenção Preventiva com Age Replacement - BASE MENSAL
 Autor: Sistema de Engenharia de Confiabilidade
-Versão: 1.1.0 (Base Mensal)
+Versão: 1.1.1 (Base Mensal - Corrigido)
 """
 
 import streamlit as st
@@ -19,8 +19,8 @@ st.set_page_config(
 )
 
 # ==================== CONSTANTES ====================
-HORAS_POR_MES = 730  # Aproximadamente 365.25 dias / 12 meses * 24 horas
-DIAS_POR_MES = 30.44  # Média de dias por mês
+HORAS_POR_MES = 730.0  # Float para consistência
+DIAS_POR_MES = 30.44
 
 # ==================== NÚCLEO DE CÁLCULO - KPIs BÁSICOS ====================
 
@@ -332,7 +332,7 @@ def main():
     HD = st.sidebar.number_input(
         "Horas Disponíveis no Mês (HD)", 
         min_value=1.0, 
-        value=HORAS_POR_MES, 
+        value=HORAS_POR_MES,  # Agora é float
         step=10.0,
         help=f"Total de horas no mês (padrão: {HORAS_POR_MES:.0f}h ≈ 30.44 dias)"
     )
@@ -510,7 +510,7 @@ def main():
             
             # Cálculos de frequência mensal
             frequencia_PM_mes = HO / T_otimo  # Quantas PMs por mês
-            dias_entre_PM = (T_cal / 24)  # Dias calendário entre PMs
+            dias_entre_PM = (T_cal / 24.0)  # Dias calendário entre PMs
             
             col1, col2, col3 = st.columns(3)
             
