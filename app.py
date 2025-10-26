@@ -1,6 +1,6 @@
 """
 Calculadora de Manutenção Preventiva - Foco em Disponibilidade Operacional
-Versão: 3.0.0 (Sem Custos - Foco em Produção)
+Versão: 3.0.1 (Corrigido)
 Autor: Sistema de Engenharia de Confiabilidade
 """
 
@@ -50,14 +50,6 @@ def calcular_disponibilidade_operacional(Aa: float, UF: float) -> float:
     Ao = Aa × UF = Ai × DF × UF
     """
     return Aa * UF
-
-def calcular_horas_disponiveis_producao(HD: float, HP: float, HF: float) -> float:
-    """
-    Calcula horas realmente disponíveis para produção.
-    
-    HD_prod = HD - HP - HF
-    """
-    return HD - HP - HF
 
 def calcular_DF_necessario(Ai: float, UF: float, Ao_meta: float) -> float:
     """
@@ -215,16 +207,9 @@ def gerar_matriz_disponibilidade(
     DF: float,
     UF: float,
     n_pontos: int = 20
-) -> pd.DataFrame:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Gera matriz relacionando MTBF, MTTR e DF/Ai.
-    
-    Args:
-        parametro_fixo: 'MTBF', 'MTTR', 'DF' ou 'Ai'
-        valor_fixo: Valor do parâmetro fixo
-        range_param1: (min, max) do primeiro parâmetro variável
-        range_param2: (min, max) do segundo parâmetro variável
-        DF, UF: Fatores para cálculo de Ao
     """
     param1_vals = np.linspace(range_param1[0], range_param1[1], n_pontos)
     param2_vals = np.linspace(range_param2[0], range_param2[1], n_pontos)
@@ -254,7 +239,6 @@ def gerar_matriz_disponibilidade(
                 Ai = valor_fixo
                 DF_calc = DF
                 UF_calc = UF
-                # Recalcular baseado em Ai fixo
                 if Ai > 0:
                     MTBF = (Ai * MTTR) / (1 - Ai) if Ai < 1 else MTBF
             
@@ -352,7 +336,7 @@ def criar_grafico_degradacao_disponibilidade(resultado: dict, T_otimo: float, Ao
     # Linha vertical no ponto ótimo
     for row in [1, 2]:
         for col in [1, 2]:
-            if col == 1:  # Apenas nos gráficos com tempo no eixo x
+            if col == 1:
                 fig.add_vline(
                     x=T_otimo,
                     line_dash="dash",
@@ -362,7 +346,6 @@ def criar_grafico_degradacao_disponibilidade(resultado: dict, T_otimo: float, Ao
                     row=row, col=col
                 )
     
-    # Atualizar eixos
     fig.update_xaxes(title_text="Horas Operadas", row=1, col=1)
     fig.update_xaxes(title_text="Horas Operadas", row=1, col=2)
     fig.update_xaxes(title_text="Horas Operadas", row=2, col=1)
@@ -517,7 +500,6 @@ def main():
                     
                     st.divider()
                     
-                    # Cálculo de horas produtivas
                     horas_operacao_teorica = HORAS_POR_MES * Ao
                     
                     st.info(f"""
@@ -531,48 +513,13 @@ def main():
                     
                     # Gráfico de composição
                     fig = go.Figure(data=[
-                        go.Bar(
-                            x=['Disponibilidade'],
-                            y=[Ai*100],
-                            name='Ai',
-                            marker_color='lightgreen',
-                            text=f'{Ai*100:.1f}%',
-                            textposition='inside'
-                        ),
-                        go.Bar(
-                            x=['Disponibilidade'],
-                            y=[(Aa-Ai)*100],
-                            name='Perda por DF',
-                            marker_color='yellow',
-                            text=f'{(Aa-Ai)*100:.1f}%',
-                            textposition='inside'
-                        ),
-                        go.Bar(
-                            x=['Disponibilidade'],
-                            y=[(Ao-Aa)*100],
-                            name='Perda por UF',
-                            marker_color='orange',
-                            text=f'{(Ao-Aa)*100:.1f}%',
-                            textposition='inside'
-                        ),
-                        go.Bar(
-                            x=['Disponibilidade'],
-                            y=[(100-Ao*100)],
-                            name='Indisponibilidade',
-                            marker_color='red',
-                            text=f'{(100-Ao*100):.1f}%',
-                            textposition='inside'
-                        )
+                        go.Bar(x=['Disponibilidade'], y=[Ai*100], name='Ai', marker_color='lightgreen', text=f'{Ai*100:.1f}%', textposition='inside'),
+                        go.Bar(x=['Disponibilidade'], y=[(Aa-Ai)*100] if Aa > Ai else [0], name='Perda por DF', marker_color='yellow', text=f'{abs((Aa-Ai)*100):.1f}%' if Aa != Ai else '', textposition='inside'),
+                        go.Bar(x=['Disponibilidade'], y=[(Ao-Aa)*100] if Ao > Aa else [0], name='Perda por UF', marker_color='orange', text=f'{abs((Ao-Aa)*100):.1f}%' if Ao != Aa else '', textposition='inside'),
+                        go.Bar(x=['Disponibilidade'], y=[(100-Ao*100)], name='Indisponibilidade', marker_color='red', text=f'{(100-Ao*100):.1f}%', textposition='inside')
                     ])
                     
-                    fig.update_layout(
-                        barmode='stack',
-                        title='Composição da Disponibilidade',
-                        yaxis_title='Percentual (%)',
-                        height=400,
-                        showlegend=True
-                    )
-                    
+                    fig.update_layout(barmode='stack', title='Composição da Disponibilidade', yaxis_title='Percentual (%)', height=400, showlegend=True)
                     st.plotly_chart(fig, use_container_width=True)
                     
                 elif modo_calculo == "Calcular DF Necessário":
@@ -732,106 +679,6 @@ def main():
                         - Ai ≥ {Ai_minimo*100:.2f}%
                         - Tempo máximo de reparo por falha: **{MTTR_maximo:.1f} horas**
                         """)
-                
-                # Tabela resumo
-                st.divider()
-                st.subheader("📋 Resumo dos Parâmetros")
-                
-                if modo_calculo == "Calcular Disponibilidade (Ao)":
-                    dados_resumo = {
-                        'Parâmetro': ['MTBF', 'MTTR', 'DF', 'UF', 'Ai', 'Aa', 'Ao'],
-                        'Valor': [
-                            f"{MTBF:.1f}h",
-                            f"{MTTR:.1f}h",
-                            f"{DF*100:.2f}%",
-                            f"{UF*100:.2f}%",
-                            f"{Ai*100:.2f}%",
-                            f"{Aa*100:.2f}%",
-                            f"{Ao*100:.2f}%"
-                        ],
-                        'Descrição': [
-                            'Mean Time Between Failures',
-                            'Mean Time To Repair',
-                            'Fator de Disponibilidade',
-                            'Fator de Utilização',
-                            'Disponibilidade Intrínseca',
-                            'Disponibilidade Alcançada',
-                            'Disponibilidade Operacional'
-                        ]
-                    }
-                elif modo_calculo == "Calcular DF Necessário":
-                    if DF_necessario <= 1:
-                        dados_resumo = {
-                            'Parâmetro': ['MTBF', 'MTTR', 'UF', 'Ao Meta', 'DF Necessário', 'Paradas Máx'],
-                            'Valor': [
-                                f"{MTBF:.1f}h",
-                                f"{MTTR:.1f}h",
-                                f"{UF*100:.2f}%",
-                                f"{Ao_meta*100:.2f}%",
-                                f"{DF_necessario*100:.2f}%",
-                                f"{HORAS_POR_MES * (1 - DF_necessario):.0f}h/mês"
-                            ]
-                        }
-                    else:
-                        dados_resumo = None
-                elif modo_calculo == "Calcular UF Necessário":
-                    if UF_necessario <= 1:
-                        dados_resumo = {
-                            'Parâmetro': ['MTBF', 'MTTR', 'DF', 'Ao Meta', 'UF Necessário', 'Horas Op. Necessárias'],
-                            'Valor': [
-                                f"{MTBF:.1f}h",
-                                f"{MTTR:.1f}h",
-                                f"{DF*100:.2f}%",
-                                f"{Ao_meta*100:.2f}%",
-                                f"{UF_necessario*100:.2f}%",
-                                f"{HORAS_POR_MES * DF * UF_necessario:.0f}h/mês"
-                            ]
-                        }
-                    else:
-                        dados_resumo = None
-                elif modo_calculo == "Calcular MTBF Necessário":
-                    if MTBF_necessario != float('inf') and MTBF_necessario > 0:
-                        dados_resumo = {
-                            'Parâmetro': ['MTTR', 'DF', 'UF', 'Ao Meta', 'MTBF Necessário', 'Falhas Máx/Mês'],
-                            'Valor': [
-                                f"{MTTR:.1f}h",
-                                f"{DF*100:.2f}%",
-                                f"{UF*100:.2f}%",
-                                f"{Ao_meta*100:.2f}%",
-                                f"{MTBF_necessario:.0f}h",
-                                f"{HORAS_POR_MES / MTBF_necessario:.2f}"
-                            ]
-                        }
-                    else:
-                        dados_resumo = None
-                else:  # MTTR Máximo
-                    if MTTR_maximo >= 0:
-                        dados_resumo = {
-                            'Parâmetro': ['MTBF', 'DF', 'UF', 'Ao Meta', 'MTTR Máximo', 'Ai Mínimo'],
-                            'Valor': [
-                                f"{MTBF:.1f}h",
-                                f"{DF*100:.2f}%",
-                                f"{UF*100:.2f}%",
-                                f"{Ao_meta*100:.2f}%",
-                                f"{MTTR_maximo:.1f}h",
-                                f"{Ai_minimo*100:.2f}%"
-                            ]
-                        }
-                    else:
-                        dados_resumo = None
-                
-                if dados_resumo:
-                    df_resumo = pd.DataFrame(dados_resumo)
-                    st.dataframe(df_resumo, use_container_width=True, hide_index=True)
-                    
-                    # Export
-                    csv_data = df_resumo.to_csv(index=False, encoding='utf-8-sig')
-                    st.download_button(
-                        label="📥 Download Resultados (CSV)",
-                        data=csv_data,
-                        file_name="disponibilidade_operacional.csv",
-                        mime="text/csv"
-                    )
             
             except Exception as e:
                 st.error(f"❌ Erro no cálculo: {str(e)}")
@@ -847,14 +694,10 @@ def main():
         with col1:
             st.subheader("⚙️ Parâmetros")
             
-            # Dados históricos
-            st.markdown("**Dados Operacionais:**")
+            st.markdown("**Parâmetros de Confiabilidade:**")
             
-            HO_deg = st.number_input("Horas Operadas/Mês", min_value=1.0, value=600.0, step=10.0, key="deg2_HO")
-            HF_deg = st.number_input("Horas em Falha/Mês", min_value=0.0, value=10.0, step=1.0, key="deg2_HF")
-            Nf_deg = st.number_input("Número de Falhas/Mês", min_value=1, value=2, step=1, key="deg2_Nf")
-            HD_deg = st.number_input("Horas Disponíveis/Mês", min_value=1.0, value=HORAS_POR_MES, step=10.0, key="deg2_HD")
-            HP_deg = st.number_input("Horas Paradas Programadas/Mês", min_value=0.0, value=0.0, step=5.0, key="deg2_HP")
+            MTBF_deg = st.number_input("MTBF (horas)", min_value=1.0, value=300.0, step=10.0, key="deg2_mtbf")
+            MTTR_deg = st.number_input("MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="deg2_mttr")
             
             st.divider()
             
@@ -873,11 +716,6 @@ def main():
         
         with col2:
             try:
-                # Calcular KPIs
-                kpis_deg = calcular_kpis_basicos(HO_deg, HF_deg, Nf_deg, HD_deg, HP_deg)
-                MTBF_deg = kpis_deg['MTBF']
-                MTTR_deg = kpis_deg['MTTR']
-                
                 lambda_base_deg = 1 / MTBF_deg
                 
                 # Encontrar intervalo ótimo
@@ -907,7 +745,9 @@ def main():
                     st.metric("Calendário", f"{T_cal_deg/24:.1f} dias")
                 
                 with col_c:
-                    st.metric("PMs/Mês", f"{HO_deg/resultado_deg['T_otimo']:.2f}")
+                    # Calcular frequência baseada em horas operadas mensais estimadas
+                    horas_op_mes = HORAS_POR_MES * DF_deg * UF_deg
+                    st.metric("PMs/Mês", f"{horas_op_mes/resultado_deg['T_otimo']:.2f}")
                 
                 col_a, col_b, col_c = st.columns(3)
                 
@@ -953,7 +793,7 @@ def main():
                     **Interpretação:**
                     - A cada **{T_cal_deg/24:.1f} dias**, fazer PM para restaurar confiabilidade
                     - Isso garante Ao ≥ {Ao_minima*100:.1f}% durante todo o ciclo
-                    - Frequência: **{(HO_deg/resultado_deg['T_otimo'])*12:.1f} PMs/ano**
+                    - Frequência: **{(horas_op_mes/resultado_deg['T_otimo'])*12:.1f} PMs/ano**
                     """)
             
             except Exception as e:
@@ -1077,7 +917,6 @@ def main():
                     Ao_min = np.min(matriz)
                     Ao_media = np.mean(matriz)
                     
-                    # Encontrar pontos de interesse
                     idx_max = np.unravel_index(np.argmax(matriz), matriz.shape)
                     idx_min = np.unravel_index(np.argmin(matriz), matriz.shape)
                     
