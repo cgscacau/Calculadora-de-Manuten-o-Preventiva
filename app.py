@@ -1,7 +1,7 @@
 """
-Calculadora de Manutenção Preventiva com Age Replacement
+Calculadora de Manutenção Preventiva com Age Replacement - BASE MENSAL
 Autor: Sistema de Engenharia de Confiabilidade
-Versão: 1.0.0 (MVP)
+Versão: 1.1.0 (Base Mensal)
 """
 
 import streamlit as st
@@ -18,6 +18,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==================== CONSTANTES ====================
+HORAS_POR_MES = 730  # Aproximadamente 365.25 dias / 12 meses * 24 horas
+DIAS_POR_MES = 30.44  # Média de dias por mês
+
 # ==================== NÚCLEO DE CÁLCULO - KPIs BÁSICOS ====================
 
 def calcular_kpis_basicos(HO: float, HF: float, Nf: int, HD: float, HP: float) -> dict:
@@ -25,10 +29,10 @@ def calcular_kpis_basicos(HO: float, HF: float, Nf: int, HD: float, HP: float) -
     Calcula KPIs básicos de confiabilidade.
     
     Args:
-        HO: Horas operadas
+        HO: Horas operadas no período
         HF: Horas em falha (downtime corretivo)
         Nf: Número de falhas
-        HD: Horas disponíveis
+        HD: Horas disponíveis no período
         HP: Horas paradas programadas
         
     Returns:
@@ -281,11 +285,13 @@ def gerar_curvas(
 def main():
     st.title("🔧 Calculadora de Manutenção Preventiva")
     st.markdown("""
-    **Sistema de otimização de intervalos de manutenção preventiva baseado em Age Replacement.**
+    **Sistema de otimização de intervalos de manutenção preventiva baseado em Age Replacement - BASE MENSAL.**
     
     Esta ferramenta calcula o intervalo ótimo de PM considerando:
     - **Meta de disponibilidade**: Encontra o intervalo que atinge a disponibilidade desejada
     - **Custo mínimo**: Encontra o intervalo que minimiza o custo total por hora operada
+    
+    ⚠️ **Todos os cálculos são realizados em base mensal.**
     """)
     
     # ==================== SIDEBAR - INPUTS ====================
@@ -293,47 +299,117 @@ def main():
     st.sidebar.header("📊 Dados do Ativo")
     
     # Dados históricos para KPIs
-    st.sidebar.subheader("Histórico Operacional")
-    HO = st.sidebar.number_input("Horas Operadas (HO)", min_value=1.0, value=8760.0, step=100.0,
-                                  help="Total de horas que o equipamento operou")
-    HF = st.sidebar.number_input("Horas em Falha (HF)", min_value=0.0, value=87.6, step=10.0,
-                                  help="Total de horas em manutenção corretiva")
-    Nf = st.sidebar.number_input("Número de Falhas (Nf)", min_value=1, value=10, step=1,
-                                  help="Quantidade de falhas ocorridas")
+    st.sidebar.subheader("Histórico Operacional (Base Mensal)")
     
-    st.sidebar.subheader("Disponibilidade de Tempo")
-    HD = st.sidebar.number_input("Horas Disponíveis (HD)", min_value=1.0, value=8760.0, step=100.0,
-                                  help="Total de horas no período (ex: 365 dias = 8760h)")
-    HP = st.sidebar.number_input("Horas Paradas Programadas (HP)", min_value=0.0, value=0.0, step=10.0,
-                                  help="Paradas programadas (não PM, ex: feriados)")
+    st.sidebar.info("📅 Insira os dados referentes a 1 mês de operação")
+    
+    HO = st.sidebar.number_input(
+        "Horas Operadas no Mês (HO)", 
+        min_value=1.0, 
+        value=600.0, 
+        step=10.0,
+        help="Total de horas que o equipamento operou no mês"
+    )
+    
+    HF = st.sidebar.number_input(
+        "Horas em Falha no Mês (HF)", 
+        min_value=0.0, 
+        value=10.0, 
+        step=1.0,
+        help="Total de horas em manutenção corretiva no mês"
+    )
+    
+    Nf = st.sidebar.number_input(
+        "Número de Falhas no Mês (Nf)", 
+        min_value=1, 
+        value=2, 
+        step=1,
+        help="Quantidade de falhas ocorridas no mês"
+    )
+    
+    st.sidebar.subheader("Disponibilidade de Tempo (Mensal)")
+    
+    HD = st.sidebar.number_input(
+        "Horas Disponíveis no Mês (HD)", 
+        min_value=1.0, 
+        value=HORAS_POR_MES, 
+        step=10.0,
+        help=f"Total de horas no mês (padrão: {HORAS_POR_MES:.0f}h ≈ 30.44 dias)"
+    )
+    
+    HP = st.sidebar.number_input(
+        "Horas Paradas Programadas no Mês (HP)", 
+        min_value=0.0, 
+        value=0.0, 
+        step=5.0,
+        help="Paradas programadas no mês (não PM, ex: feriados, setup)"
+    )
     
     # Parâmetros de manutenção
     st.sidebar.subheader("Parâmetros de Manutenção")
-    MTTR_c = st.sidebar.number_input("MTTR Corretivo (horas)", min_value=0.1, value=8.76, step=0.5,
-                                      help="Tempo médio de reparo corretivo")
-    d_PM = st.sidebar.number_input("Duração da PM (horas)", min_value=0.1, value=4.0, step=0.5,
-                                    help="Tempo necessário para executar PM")
+    
+    MTTR_c = st.sidebar.number_input(
+        "MTTR Corretivo (horas)", 
+        min_value=0.1, 
+        value=5.0, 
+        step=0.5,
+        help="Tempo médio de reparo corretivo"
+    )
+    
+    d_PM = st.sidebar.number_input(
+        "Duração da PM (horas)", 
+        min_value=0.1, 
+        value=2.0, 
+        step=0.5,
+        help="Tempo necessário para executar uma PM"
+    )
     
     # Custos
     st.sidebar.subheader("Custos")
-    C_PM = st.sidebar.number_input("Custo da PM (R$)", min_value=0.0, value=5000.0, step=100.0,
-                                    help="Custo de uma manutenção preventiva")
-    C_CM = st.sidebar.number_input("Custo da Corretiva (R$)", min_value=0.0, value=20000.0, step=100.0,
-                                    help="Custo médio de uma falha + reparo")
+    
+    C_PM = st.sidebar.number_input(
+        "Custo da PM (R$)", 
+        min_value=0.0, 
+        value=1000.0, 
+        step=100.0,
+        help="Custo de uma manutenção preventiva"
+    )
+    
+    C_CM = st.sidebar.number_input(
+        "Custo da Corretiva (R$)", 
+        min_value=0.0, 
+        value=5000.0, 
+        step=100.0,
+        help="Custo médio de uma falha + reparo"
+    )
     
     # Modelo de falha
     st.sidebar.subheader("Modelo de Falha")
-    modelo = st.sidebar.selectbox("Distribuição", ["Exponencial", "Weibull"],
-                                   help="Exponencial: taxa de falha constante (β=1). Weibull: permite desgaste/envelhecimento")
+    
+    modelo = st.sidebar.selectbox(
+        "Distribuição", 
+        ["Exponencial", "Weibull"],
+        help="Exponencial: taxa de falha constante (β=1). Weibull: permite desgaste/envelhecimento"
+    )
     
     beta = 1.0
     eta = 1000.0
     
     if modelo == "Weibull":
-        beta = st.sidebar.number_input("Parâmetro β (forma)", min_value=0.1, value=2.0, step=0.1,
-                                        help="β<1: taxa decrescente, β=1: exponencial, β>1: desgaste")
-        eta = st.sidebar.number_input("Parâmetro η (escala)", min_value=1.0, value=1000.0, step=10.0,
-                                       help="Vida característica (aproximadamente MTBF para β próximo de 1)")
+        beta = st.sidebar.number_input(
+            "Parâmetro β (forma)", 
+            min_value=0.1, 
+            value=2.0, 
+            step=0.1,
+            help="β<1: taxa decrescente, β=1: exponencial, β>1: desgaste"
+        )
+        eta = st.sidebar.number_input(
+            "Parâmetro η (escala)", 
+            min_value=1.0, 
+            value=300.0, 
+            step=10.0,
+            help="Vida característica (aproximadamente MTBF para β próximo de 1)"
+        )
     
     # Modo de otimização
     st.sidebar.subheader("Modo de Otimização")
@@ -341,7 +417,13 @@ def main():
     
     A_meta = 0.95
     if modo == "Meta de Disponibilidade":
-        A_meta = st.sidebar.slider("Disponibilidade Alvo (%)", min_value=80.0, max_value=99.9, value=95.0, step=0.1) / 100
+        A_meta = st.sidebar.slider(
+            "Disponibilidade Alvo (%)", 
+            min_value=80.0, 
+            max_value=99.9, 
+            value=95.0, 
+            step=0.1
+        ) / 100
     
     # ==================== CÁLCULOS ====================
     
@@ -362,29 +444,29 @@ def main():
             return
         
         # Ajustar eta para Weibull se necessário (aproximação inicial)
-        if modelo == "Weibull" and eta == 1000.0:
+        if modelo == "Weibull" and eta == 300.0:
             eta = MTBF  # Usar MTBF como estimativa inicial
         
         # ==================== CARDS DE KPIs ====================
         
-        st.header("📈 Indicadores de Confiabilidade")
+        st.header("📈 Indicadores de Confiabilidade (Base Mensal)")
         
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            st.metric("MTBF", f"{MTBF:.1f} h", help="Mean Time Between Failures")
+            st.metric("MTBF", f"{MTBF:.1f} h", help="Mean Time Between Failures (mensal)")
         
         with col2:
-            st.metric("MTTR", f"{kpis['MTTR']:.1f} h", help="Mean Time To Repair")
+            st.metric("MTTR", f"{kpis['MTTR']:.1f} h", help="Mean Time To Repair (mensal)")
         
         with col3:
             st.metric("Disponibilidade Intrínseca", f"{kpis['Ai']*100:.2f}%", help="Ai = MTBF/(MTBF+MTTR)")
         
         with col4:
-            st.metric("DF", f"{DF*100:.2f}%", help="Fator de Disponibilidade")
+            st.metric("DF", f"{DF*100:.2f}%", help="Fator de Disponibilidade (mensal)")
         
         with col5:
-            st.metric("UF", f"{UF*100:.2f}%", help="Fator de Utilização")
+            st.metric("UF", f"{UF*100:.2f}%", help="Fator de Utilização (mensal)")
         
         # ==================== OTIMIZAÇÃO ====================
         
@@ -426,6 +508,10 @@ def main():
         if T_otimo is not None:
             T_cal = converter_para_calendario(T_otimo, DF, UF)
             
+            # Cálculos de frequência mensal
+            frequencia_PM_mes = HO / T_otimo  # Quantas PMs por mês
+            dias_entre_PM = (T_cal / 24)  # Dias calendário entre PMs
+            
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -438,7 +524,7 @@ def main():
             with col2:
                 st.metric(
                     "Intervalo Calendário",
-                    f"{T_cal:.1f} h ({T_cal/24:.1f} dias)",
+                    f"{T_cal:.1f} h ({dias_entre_PM:.1f} dias)",
                     help="Convertido considerando DF e UF"
                 )
             
@@ -451,7 +537,7 @@ def main():
             
             st.divider()
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.metric(
@@ -461,11 +547,18 @@ def main():
                 )
             
             with col2:
-                custo_anual = g_otimo * HO
+                custo_mensal = g_otimo * HO
                 st.metric(
-                    "Custo Anual Estimado",
-                    f"R$ {custo_anual:,.2f}",
-                    help=f"Baseado em {HO:.0f} horas operadas/ano"
+                    "Custo Mensal Estimado",
+                    f"R$ {custo_mensal:,.2f}",
+                    help=f"Baseado em {HO:.0f} horas operadas/mês"
+                )
+            
+            with col3:
+                st.metric(
+                    "Frequência de PM no Mês",
+                    f"{frequencia_PM_mes:.2f} PMs",
+                    help="Número estimado de PMs por mês"
                 )
             
             # ==================== DETALHAMENTO ====================
@@ -475,7 +568,7 @@ def main():
                 **Modelo utilizado:** {modelo}
                 
                 **Parâmetros do modelo:**
-                - MTBF: {MTBF:.2f} horas
+                - MTBF: {MTBF:.2f} horas (base mensal)
                 - MTTR corretivo: {MTTR_c:.2f} horas
                 - Duração da PM: {d_PM:.2f} horas
                 """)
@@ -487,7 +580,7 @@ def main():
                     """)
                 
                 st.markdown(f"""
-                **Fatores operacionais:**
+                **Fatores operacionais (mensais):**
                 - DF (Fator de Disponibilidade): {DF:.4f}
                 - UF (Fator de Utilização): {UF:.4f}
                 - DF × UF: {DF*UF:.4f}
@@ -499,7 +592,12 @@ def main():
                 
                 **Resultados:**
                 - Probabilidade de falha antes de T: {(1 - (exponencial_sobrevida(T_otimo, MTBF) if modelo == 'Exponencial' else weibull_sobrevida(T_otimo, beta, eta)))*100:.2f}%
-                - Número estimado de PMs/ano: {HO/T_otimo:.1f}
+                - Número estimado de PMs/mês: {frequencia_PM_mes:.2f}
+                - Intervalo entre PMs: {dias_entre_PM:.1f} dias calendário
+                
+                **Projeção anual:**
+                - Custo anual estimado: R$ {custo_mensal * 12:,.2f}
+                - PMs por ano: {frequencia_PM_mes * 12:.1f}
                 """)
         
         # ==================== GRÁFICOS ====================
@@ -526,16 +624,24 @@ def main():
         
         # ==================== TABELA DE RESULTADOS ====================
         
-        st.header("📋 Tabela de Resultados")
+        st.header("📋 Tabela de Resultados (Base Mensal)")
         
         # Criar DataFrame com resultados principais
         resultados = {
             'Parâmetro': [
-                'MTBF', 'MTTR', 'Disponibilidade Intrínseca (Ai)',
-                'DF', 'UF', 'Intervalo PM Ótimo (horas operadas)',
-                'Intervalo PM Calendário (horas)', 'Intervalo PM Calendário (dias)',
-                'Disponibilidade Resultante', 'Custo por Hora Operada',
-                'Custo Anual Estimado'
+                'MTBF (mensal)', 
+                'MTTR (mensal)', 
+                'Disponibilidade Intrínseca (Ai)',
+                'DF (mensal)', 
+                'UF (mensal)', 
+                'Intervalo PM Ótimo (horas operadas)',
+                'Intervalo PM Calendário (horas)', 
+                'Intervalo PM Calendário (dias)',
+                'Frequência de PM no Mês',
+                'Disponibilidade Resultante', 
+                'Custo por Hora Operada',
+                'Custo Mensal Estimado',
+                'Custo Anual Estimado (12 meses)'
             ],
             'Valor': [
                 f"{MTBF:.2f} h",
@@ -546,9 +652,11 @@ def main():
                 f"{T_otimo:.2f} h" if T_otimo else "N/A",
                 f"{T_cal:.2f} h" if T_otimo else "N/A",
                 f"{T_cal/24:.2f} dias" if T_otimo else "N/A",
+                f"{HO/T_otimo:.2f} PMs" if T_otimo else "N/A",
                 f"{A_otimo*100:.2f}%" if A_otimo else "N/A",
                 f"R$ {g_otimo:.2f}/h" if g_otimo else "N/A",
-                f"R$ {g_otimo * HO:,.2f}" if g_otimo else "N/A"
+                f"R$ {g_otimo * HO:,.2f}" if g_otimo else "N/A",
+                f"R$ {g_otimo * HO * 12:,.2f}" if g_otimo else "N/A"
             ]
         }
         
@@ -573,7 +681,7 @@ def main():
             st.download_button(
                 label="📥 Download Resultados (CSV)",
                 data=csv_data,
-                file_name="resultados_manutencao.csv",
+                file_name="resultados_manutencao_mensal.csv",
                 mime="text/csv"
             )
         
@@ -583,7 +691,7 @@ def main():
             st.download_button(
                 label="📥 Download Curvas (CSV)",
                 data=csv_curvas,
-                file_name="curvas_analise.csv",
+                file_name="curvas_analise_mensal.csv",
                 mime="text/csv"
             )
     
@@ -599,9 +707,11 @@ def main():
     st.markdown("""
     **Sobre esta ferramenta:**
     
-    Sistema de otimização de manutenção preventiva baseado em Age Replacement Policy. 
+    Sistema de otimização de manutenção preventiva baseado em Age Replacement Policy (BASE MENSAL). 
     Calcula o intervalo ótimo de PM considerando modelos de confiabilidade (Exponencial e Weibull)
     e objetivos de disponibilidade ou custo mínimo.
+    
+    **Base de cálculo:** Todos os indicadores e resultados são calculados em base mensal (~730 horas).
     
     **Referências:**
     - Barlow, R. E., & Proschan, F. (1965). Mathematical Theory of Reliability
