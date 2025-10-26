@@ -747,7 +747,7 @@ def main():
         col_matriz1, col_matriz2 = st.columns(2)
         
         with col_matriz1:
-            mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=50.0, value=100.0, step=10.0, key="mtbf_min")
+            mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=5.0, value=100.0, step=10.0, key="mtbf_min")
             mtbf_max = st.number_input("MTBF Máximo (h)", min_value=50.0, value=500.0, step=10.0, key="mtbf_max")
         
         with col_matriz2:
