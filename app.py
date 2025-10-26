@@ -748,11 +748,11 @@ def main():
         
         with col_matriz1:
             mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=5.0, value=100.0, step=10.0, key="mtbf_min")
-            mtbf_max = st.number_input("MTBF Máximo (h)", min_value=50.0, value=500.0, step=10.0, key="mtbf_max")
+            mtbf_max = st.number_input("MTBF Máximo (h)", min_value=200.0, value=500.0, step=5.0, key="mtbf_max")
         
         with col_matriz2:
             mttr_min = st.number_input("MTTR Mínimo (h)", min_value=0.5, value=1.0, step=0.5, key="mttr_min")
-            mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.5, value=20.0, step=0.5, key="mttr_max")
+            mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.5, value=50.0, step=0.5, key="mttr_max")
         
         fig_matriz = criar_grafico_matriz_mtbf_mttr(
             DF=DF_meta,
