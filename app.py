@@ -1,22 +1,21 @@
 """
-Calculadora de Manutenção Preventiva - Foco em Disponibilidade Operacional
-Versão: 3.0.1 (Corrigido)
+Calculadora de Disponibilidade Operacional - Versão Simplificada
+Versão: 4.0.0 (Meta vs Realizado)
 Autor: Sistema de Engenharia de Confiabilidade
 """
 
 import streamlit as st
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional
+from typing import Tuple
 import io
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.express as px
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
 st.set_page_config(
-    page_title="Calculadora de Disponibilidade Operacional",
-    page_icon="🔧",
+    page_title="Calculadora de Disponibilidade - Meta vs Realizado",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -25,61 +24,27 @@ st.set_page_config(
 HORAS_POR_MES = 730.0
 DIAS_POR_MES = 30.44
 
-# ==================== CÁLCULOS DE DISPONIBILIDADE ====================
+# ==================== FUNÇÕES DE CÁLCULO ====================
 
 def calcular_disponibilidade_intrinseca(MTBF: float, MTTR: float) -> float:
-    """
-    Calcula disponibilidade intrínseca (inerente ao equipamento).
-    
-    Ai = MTBF / (MTBF + MTTR)
-    """
+    """Ai = MTBF / (MTBF + MTTR)"""
     return MTBF / (MTBF + MTTR) if (MTBF + MTTR) > 0 else 0
 
 def calcular_disponibilidade_alcancada(Ai: float, DF: float) -> float:
-    """
-    Calcula disponibilidade alcançada (considerando paradas programadas).
-    
-    Aa = Ai × DF
-    """
+    """Aa = Ai × DF"""
     return Ai * DF
 
-def calcular_disponibilidade_operacional(Aa: float, UF: float) -> float:
-    """
-    Calcula disponibilidade operacional (real, considerando utilização).
-    
-    Ao = Aa × UF = Ai × DF × UF
-    """
-    return Aa * UF
+def calcular_disponibilidade_operacional(Ai: float, DF: float, UF: float) -> float:
+    """Ao = Ai × DF × UF"""
+    return Ai * DF * UF
 
-def calcular_DF_necessario(Ai: float, UF: float, Ao_meta: float) -> float:
-    """
-    Calcula DF necessário para atingir Ao_meta.
-    
-    DF = Ao_meta / (Ai × UF)
-    """
-    denominador = Ai * UF
-    if denominador <= 0:
-        return 0
-    return Ao_meta / denominador
-
-def calcular_UF_necessario(Ai: float, DF: float, Ao_meta: float) -> float:
-    """
-    Calcula UF necessário para atingir Ao_meta.
-    
-    UF = Ao_meta / (Ai × DF)
-    """
-    denominador = Ai * DF
-    if denominador <= 0:
-        return 0
-    return Ao_meta / denominador
+def calcular_horas_producao(Ao: float, horas_mes: float = HORAS_POR_MES) -> float:
+    """Horas disponíveis para produção no mês"""
+    return Ao * horas_mes
 
 def calcular_MTBF_necessario(MTTR: float, DF: float, UF: float, Ao_meta: float) -> float:
     """
     Calcula MTBF necessário para atingir Ao_meta.
-    
-    Ao = (MTBF / (MTBF + MTTR)) × DF × UF
-    
-    Resolvendo para MTBF:
     MTBF = (Ao_meta × MTTR) / (DF × UF - Ao_meta)
     """
     denominador = DF * UF - Ao_meta
@@ -90,12 +55,46 @@ def calcular_MTBF_necessario(MTTR: float, DF: float, UF: float, Ao_meta: float) 
 def calcular_MTTR_maximo(MTBF: float, DF: float, UF: float, Ao_meta: float) -> float:
     """
     Calcula MTTR máximo permitido para atingir Ao_meta.
-    
     MTTR = MTBF × ((DF × UF - Ao_meta) / Ao_meta)
     """
     if Ao_meta <= 0:
         return 0
     return MTBF * ((DF * UF - Ao_meta) / Ao_meta)
+
+def calcular_gap_analise(Ao_atual: float, Ao_meta: float, MTBF_atual: float, MTTR_atual: float, 
+                         DF_meta: float, UF_meta: float) -> dict:
+    """
+    Analisa o gap entre situação atual e meta.
+    Fornece recomendações de melhoria.
+    """
+    gap_percentual = ((Ao_meta - Ao_atual) / Ao_atual * 100) if Ao_atual > 0 else 0
+    
+    # Calcular MTBF necessário mantendo MTTR atual
+    MTBF_necessario = calcular_MTBF_necessario(MTTR_atual, DF_meta, UF_meta, Ao_meta)
+    
+    # Calcular MTTR máximo mantendo MTBF atual
+    MTTR_maximo = calcular_MTTR_maximo(MTBF_atual, DF_meta, UF_meta, Ao_meta)
+    
+    # Calcular melhorias necessárias
+    melhoria_MTBF_percentual = ((MTBF_necessario - MTBF_atual) / MTBF_atual * 100) if MTBF_necessario != float('inf') else float('inf')
+    melhoria_MTTR_percentual = ((MTTR_atual - MTTR_maximo) / MTTR_atual * 100) if MTTR_maximo >= 0 else 0
+    
+    return {
+        'gap_percentual': gap_percentual,
+        'MTBF_necessario': MTBF_necessario,
+        'MTTR_maximo': MTTR_maximo,
+        'melhoria_MTBF_percentual': melhoria_MTBF_percentual,
+        'melhoria_MTTR_percentual': melhoria_MTTR_percentual,
+        'atingivel': MTBF_necessario != float('inf') and MTTR_maximo >= 0
+    }
+
+def calcular_numero_falhas(MTBF: float, horas_operadas: float) -> float:
+    """Número esperado de falhas no período"""
+    return horas_operadas / MTBF if MTBF > 0 else 0
+
+def calcular_tempo_reparo_total(MTTR: float, num_falhas: float) -> float:
+    """Tempo total em reparo no período"""
+    return MTTR * num_falhas
 
 # ==================== MODELO DE DEGRADAÇÃO ====================
 
@@ -107,7 +106,7 @@ def taxa_falha_degradacao(t: float, lambda_base: float, beta_desgaste: float, t_
         t_desgaste = t - t_inicio_desgaste
         return lambda_base * (1 + (t_desgaste / t_inicio_desgaste) ** beta_desgaste)
 
-def confiabilidade_degradacao(t: float, lambda_base: float, beta_desgaste: float, t_inicio_desgaste: float, n_pontos: int = 1000) -> float:
+def confiabilidade_degradacao(t: float, lambda_base: float, beta_desgaste: float, t_inicio_desgaste: float, n_pontos: int = 500) -> float:
     """Confiabilidade considerando degradação."""
     if t <= 0:
         return 1.0
@@ -130,30 +129,30 @@ def disponibilidade_ao_longo_tempo(
     """Disponibilidade operacional instantânea no tempo t."""
     R_t = confiabilidade_degradacao(t, lambda_base, beta_desgaste, t_inicio_desgaste)
     
-    # Disponibilidade intrínseca no tempo t
     tempo_total = t + MTTR * (1 - R_t)
     Ai_t = (t * R_t) / tempo_total if tempo_total > 0 else 0
     
-    # Disponibilidade operacional
     Ao_t = Ai_t * DF * UF
     
     return Ao_t
 
-def encontrar_intervalo_PM_por_disponibilidade(
-    lambda_base: float,
-    beta_desgaste: float,
-    t_inicio_desgaste: float,
+def encontrar_intervalo_PM_otimo(
+    MTBF: float,
     MTTR: float,
     DF: float,
     UF: float,
     Ao_minima: float,
-    t_max: float = None
+    t_inicio_desgaste: float = None,
+    beta_desgaste: float = 2.5
 ) -> dict:
     """
     Encontra intervalo ótimo de PM baseado em disponibilidade operacional mínima.
     """
-    if t_max is None:
-        t_max = t_inicio_desgaste * 3
+    if t_inicio_desgaste is None:
+        t_inicio_desgaste = MTBF * 0.7  # 70% do MTBF como padrão
+    
+    lambda_base = 1 / MTBF
+    t_max = t_inicio_desgaste * 3
     
     t_vals = np.linspace(1, t_max, 500)
     
@@ -182,7 +181,6 @@ def encontrar_intervalo_PM_por_disponibilidade(
         T_otimo = t_vals[idx_acima_minima[-1]]
         idx_otimo = idx_acima_minima[-1]
     else:
-        # Se nunca atinge, escolher ponto de maior disponibilidade
         idx_otimo = np.argmax(disponibilidades)
         T_otimo = t_vals[idx_otimo]
     
@@ -194,71 +192,79 @@ def encontrar_intervalo_PM_por_disponibilidade(
         't_vals': t_vals,
         'disponibilidades': disponibilidades,
         'confiabilidades': confiabilidades,
-        'taxas_falha': taxas_falha
+        'taxas_falha': taxas_falha,
+        't_inicio_desgaste': t_inicio_desgaste
     }
-
-# ==================== MATRIZ DE DISPONIBILIDADE ====================
-
-def gerar_matriz_disponibilidade(
-    parametro_fixo: str,
-    valor_fixo: float,
-    range_param1: Tuple[float, float],
-    range_param2: Tuple[float, float],
-    DF: float,
-    UF: float,
-    n_pontos: int = 20
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Gera matriz relacionando MTBF, MTTR e DF/Ai.
-    """
-    param1_vals = np.linspace(range_param1[0], range_param1[1], n_pontos)
-    param2_vals = np.linspace(range_param2[0], range_param2[1], n_pontos)
-    
-    matriz = np.zeros((n_pontos, n_pontos))
-    
-    for i, p1 in enumerate(param1_vals):
-        for j, p2 in enumerate(param2_vals):
-            if parametro_fixo == 'MTBF':
-                MTBF = valor_fixo
-                MTTR = p1
-                DF_calc = p2
-                UF_calc = UF
-            elif parametro_fixo == 'MTTR':
-                MTBF = p1
-                MTTR = valor_fixo
-                DF_calc = p2
-                UF_calc = UF
-            elif parametro_fixo == 'DF':
-                MTBF = p1
-                MTTR = p2
-                DF_calc = valor_fixo
-                UF_calc = UF
-            else:  # Ai fixo
-                MTBF = p1
-                MTTR = p2
-                Ai = valor_fixo
-                DF_calc = DF
-                UF_calc = UF
-                if Ai > 0:
-                    MTBF = (Ai * MTTR) / (1 - Ai) if Ai < 1 else MTBF
-            
-            Ai = calcular_disponibilidade_intrinseca(MTBF, MTTR)
-            Ao = calcular_disponibilidade_operacional(Ai, DF_calc, UF_calc)
-            matriz[i, j] = Ao * 100
-    
-    return matriz, param1_vals, param2_vals
 
 # ==================== PLOTAGEM ====================
 
-def criar_grafico_degradacao_disponibilidade(resultado: dict, T_otimo: float, Ao_minima: float) -> go.Figure:
-    """Gráfico de degradação focado em disponibilidade."""
+def criar_grafico_comparativo(Ao_atual: float, Ao_meta: float, Ai_atual: float, Ai_meta: float,
+                               DF_atual: float, DF_meta: float, UF_atual: float, UF_meta: float) -> go.Figure:
+    """Cria gráfico comparativo entre situação atual e meta."""
+    
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=(
+            'Disponibilidade Operacional',
+            'Disponibilidade Intrínseca',
+            'Fator de Disponibilidade (DF)',
+            'Fator de Utilização (UF)'
+        ),
+        specs=[[{"type": "bar"}, {"type": "bar"}],
+               [{"type": "bar"}, {"type": "bar"}]]
+    )
+    
+    # Ao
+    fig.add_trace(
+        go.Bar(x=['Atual', 'Meta'], y=[Ao_atual*100, Ao_meta*100],
+               marker_color=['#FF6B6B', '#4ECDC4'],
+               text=[f'{Ao_atual*100:.1f}%', f'{Ao_meta*100:.1f}%'],
+               textposition='outside'),
+        row=1, col=1
+    )
+    
+    # Ai
+    fig.add_trace(
+        go.Bar(x=['Atual', 'Meta'], y=[Ai_atual*100, Ai_meta*100],
+               marker_color=['#FF6B6B', '#4ECDC4'],
+               text=[f'{Ai_atual*100:.1f}%', f'{Ai_meta*100:.1f}%'],
+               textposition='outside'),
+        row=1, col=2
+    )
+    
+    # DF
+    fig.add_trace(
+        go.Bar(x=['Atual', 'Meta'], y=[DF_atual*100, DF_meta*100],
+               marker_color=['#FF6B6B', '#4ECDC4'],
+               text=[f'{DF_atual*100:.1f}%', f'{DF_meta*100:.1f}%'],
+               textposition='outside'),
+        row=2, col=1
+    )
+    
+    # UF
+    fig.add_trace(
+        go.Bar(x=['Atual', 'Meta'], y=[UF_atual*100, UF_meta*100],
+               marker_color=['#FF6B6B', '#4ECDC4'],
+               text=[f'{UF_atual*100:.1f}%', f'{UF_meta*100:.1f}%'],
+               textposition='outside'),
+        row=2, col=2
+    )
+    
+    fig.update_yaxes(title_text="%", range=[0, 105])
+    fig.update_layout(height=600, showlegend=False, title_text="Comparação: Atual vs Meta")
+    
+    return fig
+
+def criar_grafico_degradacao(resultado: dict, T_otimo: float, Ao_minima: float) -> go.Figure:
+    """Gráfico de degradação com intervalo de PM."""
+    
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=(
             'Disponibilidade Operacional ao Longo do Tempo',
             'Confiabilidade (Probabilidade de Não Falhar)',
             'Taxa de Falha Instantânea',
-            'Disponibilidade vs Confiabilidade'
+            'Evolução Combinada'
         ),
         vertical_spacing=0.12,
         horizontal_spacing=0.10
@@ -266,130 +272,93 @@ def criar_grafico_degradacao_disponibilidade(resultado: dict, T_otimo: float, Ao
     
     t_vals = resultado['t_vals']
     
-    # Subplot 1: Disponibilidade Operacional
+    # Subplot 1: Disponibilidade
     fig.add_trace(
-        go.Scatter(
-            x=t_vals,
-            y=resultado['disponibilidades'] * 100,
-            mode='lines',
-            name='Ao(t)',
-            line=dict(color='blue', width=3),
-            hovertemplate='Tempo: %{x:.1f}h<br>Ao: %{y:.2f}%<extra></extra>'
-        ),
+        go.Scatter(x=t_vals, y=resultado['disponibilidades']*100, mode='lines',
+                   name='Ao(t)', line=dict(color='blue', width=3)),
         row=1, col=1
     )
-    
-    # Linha de disponibilidade mínima
-    fig.add_hline(
-        y=Ao_minima * 100,
-        line_dash="dash",
-        line_color="red",
-        annotation_text=f"Ao mínima: {Ao_minima*100:.1f}%",
-        row=1, col=1
-    )
+    fig.add_hline(y=Ao_minima*100, line_dash="dash", line_color="red",
+                  annotation_text=f"Ao mínima: {Ao_minima*100:.1f}%", row=1, col=1)
     
     # Subplot 2: Confiabilidade
     fig.add_trace(
-        go.Scatter(
-            x=t_vals,
-            y=resultado['confiabilidades'] * 100,
-            mode='lines',
-            name='R(t)',
-            line=dict(color='green', width=3),
-            hovertemplate='Tempo: %{x:.1f}h<br>R(t): %{y:.2f}%<extra></extra>'
-        ),
+        go.Scatter(x=t_vals, y=resultado['confiabilidades']*100, mode='lines',
+                   name='R(t)', line=dict(color='green', width=3)),
         row=1, col=2
     )
     
     # Subplot 3: Taxa de Falha
     fig.add_trace(
-        go.Scatter(
-            x=t_vals,
-            y=resultado['taxas_falha'],
-            mode='lines',
-            name='λ(t)',
-            line=dict(color='red', width=3),
-            hovertemplate='Tempo: %{x:.1f}h<br>λ(t): %{y:.4f}<extra></extra>'
-        ),
+        go.Scatter(x=t_vals, y=resultado['taxas_falha'], mode='lines',
+                   name='λ(t)', line=dict(color='red', width=3)),
         row=2, col=1
     )
     
-    # Subplot 4: Ao vs R (scatter)
+    # Subplot 4: Evolução combinada normalizada
+    Ao_norm = (resultado['disponibilidades'] - resultado['disponibilidades'].min()) / (resultado['disponibilidades'].max() - resultado['disponibilidades'].min()) * 100
+    R_norm = (resultado['confiabilidades'] - resultado['confiabilidades'].min()) / (resultado['confiabilidades'].max() - resultado['confiabilidades'].min()) * 100
+    
     fig.add_trace(
-        go.Scatter(
-            x=resultado['confiabilidades'] * 100,
-            y=resultado['disponibilidades'] * 100,
-            mode='markers',
-            name='Ao vs R',
-            marker=dict(
-                size=4,
-                color=t_vals,
-                colorscale='Viridis',
-                showscale=True,
-                colorbar=dict(title="Tempo (h)", x=1.15)
-            ),
-            hovertemplate='R(t): %{x:.2f}%<br>Ao(t): %{y:.2f}%<extra></extra>'
-        ),
+        go.Scatter(x=t_vals, y=Ao_norm, mode='lines', name='Ao normalizado',
+                   line=dict(color='blue', width=2)),
+        row=2, col=2
+    )
+    fig.add_trace(
+        go.Scatter(x=t_vals, y=R_norm, mode='lines', name='R normalizado',
+                   line=dict(color='green', width=2, dash='dash')),
         row=2, col=2
     )
     
     # Linha vertical no ponto ótimo
     for row in [1, 2]:
         for col in [1, 2]:
-            if col == 1:
-                fig.add_vline(
-                    x=T_otimo,
-                    line_dash="dash",
-                    line_color="purple",
-                    opacity=0.7,
-                    annotation_text=f"PM: {T_otimo:.0f}h",
-                    row=row, col=col
-                )
+            if col == 1 or (row == 2 and col == 2):
+                fig.add_vline(x=T_otimo, line_dash="dash", line_color="purple",
+                             opacity=0.7, annotation_text=f"PM: {T_otimo:.0f}h",
+                             row=row, col=col)
     
-    fig.update_xaxes(title_text="Horas Operadas", row=1, col=1)
-    fig.update_xaxes(title_text="Horas Operadas", row=1, col=2)
-    fig.update_xaxes(title_text="Horas Operadas", row=2, col=1)
-    fig.update_xaxes(title_text="Confiabilidade (%)", row=2, col=2)
-    
+    fig.update_xaxes(title_text="Horas Operadas")
     fig.update_yaxes(title_text="Ao (%)", row=1, col=1)
     fig.update_yaxes(title_text="R(t) (%)", row=1, col=2)
     fig.update_yaxes(title_text="λ(t)", row=2, col=1)
-    fig.update_yaxes(title_text="Ao (%)", row=2, col=2)
+    fig.update_yaxes(title_text="Normalizado (%)", row=2, col=2)
     
-    fig.update_layout(
-        height=700,
-        showlegend=False,
-        title_text="Análise de Degradação - Disponibilidade Operacional",
-        title_x=0.5
-    )
+    fig.update_layout(height=700, showlegend=True, 
+                     title_text="Análise de Degradação - Intervalo Ótimo de PM")
     
     return fig
 
-def criar_heatmap_disponibilidade(
-    matriz: np.ndarray,
-    param1_vals: np.ndarray,
-    param2_vals: np.ndarray,
-    param1_name: str,
-    param2_name: str,
-    titulo: str
-) -> go.Figure:
-    """Cria heatmap da matriz de disponibilidade."""
+def criar_grafico_matriz_mtbf_mttr(DF: float, UF: float, 
+                                     mtbf_range: Tuple[float, float] = (100, 500),
+                                     mttr_range: Tuple[float, float] = (1, 20),
+                                     n_pontos: int = 30) -> go.Figure:
+    """Cria matriz de disponibilidade MTBF vs MTTR."""
+    
+    mtbf_vals = np.linspace(mtbf_range[0], mtbf_range[1], n_pontos)
+    mttr_vals = np.linspace(mttr_range[0], mttr_range[1], n_pontos)
+    
+    matriz = np.zeros((n_pontos, n_pontos))
+    
+    for i, mtbf in enumerate(mtbf_vals):
+        for j, mttr in enumerate(mttr_vals):
+            Ai = calcular_disponibilidade_intrinseca(mtbf, mttr)
+            Ao = calcular_disponibilidade_operacional(Ai, DF, UF)
+            matriz[i, j] = Ao * 100
+    
     fig = go.Figure(data=go.Heatmap(
         z=matriz,
-        x=param2_vals,
-        y=param1_vals,
+        x=mttr_vals,
+        y=mtbf_vals,
         colorscale='RdYlGn',
-        text=np.round(matriz, 1),
-        texttemplate='%{text}%',
-        textfont={"size": 8},
         colorbar=dict(title="Ao (%)"),
-        hovertemplate=f'{param2_name}: %{{x:.1f}}<br>{param1_name}: %{{y:.1f}}<br>Ao: %{{z:.1f}}%<extra></extra>'
+        hovertemplate='MTTR: %{x:.1f}h<br>MTBF: %{y:.1f}h<br>Ao: %{z:.1f}%<extra></extra>'
     ))
     
     fig.update_layout(
-        title=titulo,
-        xaxis_title=param2_name,
-        yaxis_title=param1_name,
+        title=f"Matriz de Disponibilidade (DF={DF*100:.0f}%, UF={UF*100:.0f}%)",
+        xaxis_title="MTTR (horas)",
+        yaxis_title="MTBF (horas)",
         height=600
     )
     
@@ -399,586 +368,546 @@ def criar_heatmap_disponibilidade(
 
 def main():
     st.title("🎯 Calculadora de Disponibilidade Operacional")
-    st.markdown("""
-    **Sistema focado em disponibilidade para cumprimento de metas de produção - BASE MENSAL.**
+    st.markdown("### Meta vs Realizado - Análise Completa")
     
-    Esta ferramenta permite:
-    - ✅ **Calcular disponibilidade operacional** (Ao) baseada em MTBF, MTTR, DF e UF
-    - ✅ **Determinar DF e UF necessários** para atingir meta de produção
-    - ✅ **Analisar degradação** e encontrar intervalo ótimo de PM
-    - ✅ **Matriz de disponibilidade** relacionando MTBF, MTTR e DF
+    st.markdown("""
+    **Entre com sua meta mensal e o desempenho atual - o sistema calcula tudo!**
+    
+    📊 O que você obtém:
+    - ✅ Análise completa de disponibilidade (Ai, Aa, Ao)
+    - ✅ Gap entre situação atual e meta
+    - ✅ Recomendações de melhoria (MTBF e MTTR)
+    - ✅ Intervalo ótimo de manutenção preventiva
+    - ✅ Matriz de disponibilidade interativa
     """)
     
-    # ==================== TABS ====================
+    st.divider()
     
-    tab1, tab2, tab3 = st.tabs([
-        "🎯 Cálculo de Disponibilidade",
-        "📊 Análise de Degradação",
-        "🗺️ Matriz de Disponibilidade"
-    ])
+    # ==================== INPUTS ====================
     
-    # ==================== TAB 1: CÁLCULO DE DISPONIBILIDADE ====================
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🎯 META MENSAL")
+        
+        DF_meta = st.slider(
+            "DF Meta - Fator de Disponibilidade (%)",
+            min_value=80.0,
+            max_value=100.0,
+            value=95.0,
+            step=0.5,
+            help="Meta de tempo disponível para operação (sem paradas programadas excessivas)"
+        ) / 100
+        
+        UF_meta = st.slider(
+            "UF Meta - Fator de Utilização (%)",
+            min_value=70.0,
+            max_value=100.0,
+            value=90.0,
+            step=0.5,
+            help="Meta de utilização do tempo disponível"
+        ) / 100
+        
+        Ao_meta = DF_meta * UF_meta  # Simplificação: assumindo Ai = 1 para meta
+        
+        st.info(f"""
+        **Meta Combinada:**
+        - Ao Meta (assumindo Ai=100%): **{Ao_meta*100:.2f}%**
+        - Horas produção/mês: **{Ao_meta*HORAS_POR_MES:.0f}h**
+        """)
+    
+    with col2:
+        st.subheader("📊 DESEMPENHO ATUAL (Mês Anterior)")
+        
+        MTBF_atual = st.number_input(
+            "MTBF Atual (horas)",
+            min_value=1.0,
+            value=300.0,
+            step=10.0,
+            help="Mean Time Between Failures do mês anterior"
+        )
+        
+        MTTR_atual = st.number_input(
+            "MTTR Atual (horas)",
+            min_value=0.1,
+            value=5.0,
+            step=0.5,
+            help="Mean Time To Repair do mês anterior"
+        )
+        
+        st.markdown("**Fatores Operacionais Atuais:**")
+        
+        DF_atual = st.slider(
+            "DF Atual (%)",
+            min_value=50.0,
+            max_value=100.0,
+            value=92.0,
+            step=0.5
+        ) / 100
+        
+        UF_atual = st.slider(
+            "UF Atual (%)",
+            min_value=50.0,
+            max_value=100.0,
+            value=85.0,
+            step=0.5
+        ) / 100
+    
+    st.divider()
+    
+    # ==================== CÁLCULOS ====================
+    
+    # Situação Atual
+    Ai_atual = calcular_disponibilidade_intrinseca(MTBF_atual, MTTR_atual)
+    Aa_atual = calcular_disponibilidade_alcancada(Ai_atual, DF_atual)
+    Ao_atual = calcular_disponibilidade_operacional(Ai_atual, DF_atual, UF_atual)
+    horas_prod_atual = calcular_horas_producao(Ao_atual)
+    
+    # Situação Meta (assumindo melhorias em MTBF/MTTR)
+    Ai_meta = 1.0  # Meta ideal
+    Aa_meta = calcular_disponibilidade_alcancada(Ai_meta, DF_meta)
+    horas_prod_meta = calcular_horas_producao(Ao_meta)
+    
+    # Análise de Gap
+    gap_analise = calcular_gap_analise(Ao_atual, Ao_meta, MTBF_atual, MTTR_atual, DF_meta, UF_meta)
+    
+    # Número de falhas e tempo de reparo
+    horas_operadas_mes = HORAS_POR_MES * DF_atual * UF_atual
+    num_falhas_atual = calcular_numero_falhas(MTBF_atual, horas_operadas_mes)
+    tempo_reparo_total_atual = calcular_tempo_reparo_total(MTTR_atual, num_falhas_atual)
+    
+    # ==================== RESULTADOS PRINCIPAIS ====================
+    
+    st.header("📈 RESULTADOS DA ANÁLISE")
+    
+    # Métricas principais
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        delta_Ao = (Ao_atual - Ao_meta) * 100
+        st.metric(
+            "Ao Atual",
+            f"{Ao_atual*100:.2f}%",
+            delta=f"{delta_Ao:.2f}%",
+            delta_color="normal"
+        )
+    
+    with col2:
+        st.metric(
+            "Ao Meta",
+            f"{Ao_meta*100:.2f}%",
+            help="Meta de disponibilidade operacional"
+        )
+    
+    with col3:
+        gap = Ao_meta - Ao_atual
+        st.metric(
+            "Gap",
+            f"{gap*100:.2f}%",
+            delta=f"{gap_analise['gap_percentual']:.1f}% relativo",
+            delta_color="inverse"
+        )
+    
+    with col4:
+        st.metric(
+            "Horas Prod. Atual",
+            f"{horas_prod_atual:.0f}h/mês"
+        )
+    
+    with col5:
+        delta_horas = horas_prod_meta - horas_prod_atual
+        st.metric(
+            "Horas Prod. Meta",
+            f"{horas_prod_meta:.0f}h/mês",
+            delta=f"{delta_horas:+.0f}h"
+        )
+    
+    st.divider()
+    
+    # Detalhamento em colunas
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🔍 Situação Atual Detalhada")
+        
+        dados_atual = pd.DataFrame({
+            'Indicador': [
+                'MTBF',
+                'MTTR',
+                'Ai - Disponibilidade Intrínseca',
+                'DF - Fator de Disponibilidade',
+                'UF - Fator de Utilização',
+                'Aa - Disponibilidade Alcançada',
+                'Ao - Disponibilidade Operacional',
+                'Horas Produção/Mês',
+                'Falhas Esperadas/Mês',
+                'Tempo Total em Reparo/Mês'
+            ],
+            'Valor Atual': [
+                f"{MTBF_atual:.1f}h",
+                f"{MTTR_atual:.1f}h",
+                f"{Ai_atual*100:.2f}%",
+                f"{DF_atual*100:.2f}%",
+                f"{UF_atual*100:.2f}%",
+                f"{Aa_atual*100:.2f}%",
+                f"{Ao_atual*100:.2f}%",
+                f"{horas_prod_atual:.0f}h",
+                f"{num_falhas_atual:.2f}",
+                f"{tempo_reparo_total_atual:.1f}h"
+            ]
+        })
+        
+        st.dataframe(dados_atual, use_container_width=True, hide_index=True)
+    
+    with col2:
+        st.subheader("🎯 Para Atingir a Meta")
+        
+        if gap_analise['atingivel']:
+            st.success("✅ Meta atingível com melhorias!")
+            
+            recomendacoes = pd.DataFrame({
+                'Estratégia': [
+                    'Opção 1: Melhorar MTBF',
+                    'Opção 2: Melhorar MTTR',
+                    'Opção 3: Melhorar DF',
+                    'Opção 4: Melhorar UF'
+                ],
+                'Ação Necessária': [
+                    f"MTBF ≥ {gap_analise['MTBF_necessario']:.0f}h (+{gap_analise['melhoria_MTBF_percentual']:.1f}%)" if gap_analise['MTBF_necessario'] != float('inf') else "Não aplicável",
+                    f"MTTR ≤ {gap_analise['MTTR_maximo']:.1f}h (-{gap_analise['melhoria_MTTR_percentual']:.1f}%)" if gap_analise['MTTR_maximo'] >= 0 else "Não aplicável",
+                    f"DF ≥ {DF_meta*100:.1f}% (atual: {DF_atual*100:.1f}%)",
+                    f"UF ≥ {UF_meta*100:.1f}% (atual: {UF_atual*100:.1f}%)"
+                ]
+            })
+            
+            st.dataframe(recomendacoes, use_container_width=True, hide_index=True)
+            
+            st.info(f"""
+            **Interpretação:**
+            
+            Para atingir **Ao = {Ao_meta*100:.2f}%**, você pode:
+            
+            1. **Aumentar MTBF** de {MTBF_atual:.0f}h para {gap_analise['MTBF_necessario']:.0f}h
+               - Melhoria necessária: **{gap_analise['melhoria_MTBF_percentual']:.1f}%**
+               - Ações: Melhorar confiabilidade, manutenção preditiva, substituição de componentes críticos
+            
+            2. **Reduzir MTTR** de {MTTR_atual:.1f}h para {gap_analise['MTTR_maximo']:.1f}h
+               - Redução necessária: **{gap_analise['melhoria_MTTR_percentual']:.1f}%**
+               - Ações: Treinamento, peças em estoque, procedimentos otimizados
+            
+            3. **Aumentar DF** de {DF_atual*100:.1f}% para {DF_meta*100:.1f}%
+               - Ações: Reduzir paradas programadas, otimizar setup
+            
+            4. **Aumentar UF** de {UF_atual*100:.1f}% para {UF_meta*100:.1f}%
+               - Ações: Melhorar planejamento de produção, reduzir ociosidade
+            
+            💡 **Recomendação:** Combine melhorias em MTBF e MTTR para resultados mais sustentáveis.
+            """)
+        else:
+            st.error("⚠️ Meta muito ambiciosa com parâmetros atuais!")
+            st.warning(f"""
+            A meta de **Ao = {Ao_meta*100:.2f}%** não é atingível com:
+            - DF meta: {DF_meta*100:.1f}%
+            - UF meta: {UF_meta*100:.1f}%
+            
+            **Ao máximo teórico** com DF e UF metas: **{(DF_meta * UF_meta)*100:.2f}%**
+            
+            **Sugestões:**
+            1. Revisar metas de DF e UF (aumentar)
+            2. Aceitar meta de Ao mais realista
+            3. Investir em melhorias radicais de confiabilidade
+            """)
+    
+    st.divider()
+    
+    # ==================== GRÁFICOS ====================
+    
+    st.header("📊 VISUALIZAÇÕES")
+    
+    tab1, tab2, tab3 = st.tabs(["Comparativo", "Degradação e PM", "Matriz MTBF vs MTTR"])
     
     with tab1:
-        st.header("🎯 Cálculo de Disponibilidade Operacional")
+        st.subheader("Comparação: Atual vs Meta")
         
-        col1, col2 = st.columns([1, 1])
+        fig_comp = criar_grafico_comparativo(
+            Ao_atual, Ao_meta, Ai_atual, Ai_meta,
+            DF_atual, DF_meta, UF_atual, UF_meta
+        )
+        st.plotly_chart(fig_comp, use_container_width=True)
+        
+        # Análise adicional
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("📊 Dados Operacionais (Base Mensal)")
-            
-            modo_calculo = st.radio(
-                "Modo de Cálculo:",
-                ["Calcular Disponibilidade (Ao)", "Calcular DF Necessário", "Calcular UF Necessário", "Calcular MTBF Necessário", "Calcular MTTR Máximo"],
-                help="Escolha o que deseja calcular"
-            )
-            
-            st.divider()
-            
-            # Inputs baseados no modo
-            if modo_calculo == "Calcular Disponibilidade (Ao)":
-                MTBF = st.number_input("MTBF (horas)", min_value=1.0, value=300.0, step=10.0, key="ao_mtbf")
-                MTTR = st.number_input("MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="ao_mttr")
-                DF = st.slider("DF - Fator de Disponibilidade (%)", min_value=50.0, max_value=100.0, value=95.0, step=0.5) / 100
-                UF = st.slider("UF - Fator de Utilização (%)", min_value=50.0, max_value=100.0, value=85.0, step=0.5) / 100
-                
-            elif modo_calculo == "Calcular DF Necessário":
-                MTBF = st.number_input("MTBF (horas)", min_value=1.0, value=300.0, step=10.0, key="df_mtbf")
-                MTTR = st.number_input("MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="df_mttr")
-                UF = st.slider("UF - Fator de Utilização (%)", min_value=50.0, max_value=100.0, value=85.0, step=0.5) / 100
-                Ao_meta = st.slider("Ao Meta - Disponibilidade Operacional Desejada (%)", min_value=50.0, max_value=99.0, value=85.0, step=0.5) / 100
-                
-            elif modo_calculo == "Calcular UF Necessário":
-                MTBF = st.number_input("MTBF (horas)", min_value=1.0, value=300.0, step=10.0, key="uf_mtbf")
-                MTTR = st.number_input("MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="uf_mttr")
-                DF = st.slider("DF - Fator de Disponibilidade (%)", min_value=50.0, max_value=100.0, value=95.0, step=0.5) / 100
-                Ao_meta = st.slider("Ao Meta - Disponibilidade Operacional Desejada (%)", min_value=50.0, max_value=99.0, value=85.0, step=0.5) / 100
-                
-            elif modo_calculo == "Calcular MTBF Necessário":
-                MTTR = st.number_input("MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="mtbf_mttr")
-                DF = st.slider("DF - Fator de Disponibilidade (%)", min_value=50.0, max_value=100.0, value=95.0, step=0.5) / 100
-                UF = st.slider("UF - Fator de Utilização (%)", min_value=50.0, max_value=100.0, value=85.0, step=0.5) / 100
-                Ao_meta = st.slider("Ao Meta - Disponibilidade Operacional Desejada (%)", min_value=50.0, max_value=99.0, value=85.0, step=0.5) / 100
-                
-            else:  # Calcular MTTR Máximo
-                MTBF = st.number_input("MTBF (horas)", min_value=1.0, value=300.0, step=10.0, key="mttr_mtbf")
-                DF = st.slider("DF - Fator de Disponibilidade (%)", min_value=50.0, max_value=100.0, value=95.0, step=0.5) / 100
-                UF = st.slider("UF - Fator de Utilização (%)", min_value=50.0, max_value=100.0, value=85.0, step=0.5) / 100
-                Ao_meta = st.slider("Ao Meta - Disponibilidade Operacional Desejada (%)", min_value=50.0, max_value=99.0, value=85.0, step=0.5) / 100
+            st.markdown("**🔴 Situação Atual:**")
+            st.write(f"- Ai: {Ai_atual*100:.2f}%")
+            st.write(f"- Aa: {Aa_atual*100:.2f}%")
+            st.write(f"- Ao: {Ao_atual*100:.2f}%")
+            st.write(f"- Produção: {horas_prod_atual:.0f}h/mês")
         
         with col2:
-            st.subheader("📈 Resultados")
-            
-            try:
-                if modo_calculo == "Calcular Disponibilidade (Ao)":
-                    Ai = calcular_disponibilidade_intrinseca(MTBF, MTTR)
-                    Aa = calcular_disponibilidade_alcancada(Ai, DF)
-                    Ao = calcular_disponibilidade_operacional(Aa, UF)
-                    
-                    col_a, col_b, col_c = st.columns(3)
-                    
-                    with col_a:
-                        st.metric(
-                            "Ai - Intrínseca",
-                            f"{Ai*100:.2f}%",
-                            help="Disponibilidade inerente ao equipamento"
-                        )
-                    
-                    with col_b:
-                        st.metric(
-                            "Aa - Alcançada",
-                            f"{Aa*100:.2f}%",
-                            help="Considerando paradas programadas"
-                        )
-                    
-                    with col_c:
-                        st.metric(
-                            "Ao - Operacional",
-                            f"{Ao*100:.2f}%",
-                            help="Disponibilidade real para produção"
-                        )
-                    
-                    st.divider()
-                    
-                    horas_operacao_teorica = HORAS_POR_MES * Ao
-                    
-                    st.info(f"""
-                    **Interpretação:**
-                    
-                    Com os parâmetros atuais:
-                    - **{horas_operacao_teorica:.0f} horas/mês** disponíveis para produção
-                    - **{(HORAS_POR_MES - horas_operacao_teorica):.0f} horas/mês** de indisponibilidade total
-                    - **Meta de produção**: Se precisar de X horas/mês, verifique se Ao é suficiente
-                    """)
-                    
-                    # Gráfico de composição
-                    fig = go.Figure(data=[
-                        go.Bar(x=['Disponibilidade'], y=[Ai*100], name='Ai', marker_color='lightgreen', text=f'{Ai*100:.1f}%', textposition='inside'),
-                        go.Bar(x=['Disponibilidade'], y=[(Aa-Ai)*100] if Aa > Ai else [0], name='Perda por DF', marker_color='yellow', text=f'{abs((Aa-Ai)*100):.1f}%' if Aa != Ai else '', textposition='inside'),
-                        go.Bar(x=['Disponibilidade'], y=[(Ao-Aa)*100] if Ao > Aa else [0], name='Perda por UF', marker_color='orange', text=f'{abs((Ao-Aa)*100):.1f}%' if Ao != Aa else '', textposition='inside'),
-                        go.Bar(x=['Disponibilidade'], y=[(100-Ao*100)], name='Indisponibilidade', marker_color='red', text=f'{(100-Ao*100):.1f}%', textposition='inside')
-                    ])
-                    
-                    fig.update_layout(barmode='stack', title='Composição da Disponibilidade', yaxis_title='Percentual (%)', height=400, showlegend=True)
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                elif modo_calculo == "Calcular DF Necessário":
-                    Ai = calcular_disponibilidade_intrinseca(MTBF, MTTR)
-                    DF_necessario = calcular_DF_necessario(Ai, UF, Ao_meta)
-                    
-                    if DF_necessario > 1:
-                        st.error(f"⚠️ **Impossível atingir Ao = {Ao_meta*100:.1f}%**")
-                        st.warning(f"""
-                        Com MTBF={MTBF:.0f}h, MTTR={MTTR:.1f}h e UF={UF*100:.0f}%:
-                        - Ai máximo = {Ai*100:.2f}%
-                        - Ao máximo possível = {(Ai*UF)*100:.2f}%
-                        
-                        **Sugestões:**
-                        - Aumentar MTBF (melhorar confiabilidade)
-                        - Reduzir MTTR (melhorar manutenibilidade)
-                        - Aumentar UF (melhorar utilização)
-                        - Reduzir meta de Ao
-                        """)
-                    else:
-                        st.success(f"✅ **DF Necessário: {DF_necessario*100:.2f}%**")
-                        
-                        col_a, col_b = st.columns(2)
-                        
-                        with col_a:
-                            st.metric("DF Necessário", f"{DF_necessario*100:.2f}%")
-                        
-                        with col_b:
-                            horas_paradas_max = HORAS_POR_MES * (1 - DF_necessario)
-                            st.metric("Paradas Permitidas", f"{horas_paradas_max:.0f}h/mês")
-                        
-                        st.info(f"""
-                        **Interpretação:**
-                        
-                        Para atingir Ao = {Ao_meta*100:.1f}%, você precisa:
-                        - **DF ≥ {DF_necessario*100:.2f}%**
-                        - Máximo de **{horas_paradas_max:.0f} horas/mês** de paradas programadas
-                        - Isso equivale a **{horas_paradas_max/24:.1f} dias/mês** de paradas
-                        """)
-                
-                elif modo_calculo == "Calcular UF Necessário":
-                    Ai = calcular_disponibilidade_intrinseca(MTBF, MTTR)
-                    UF_necessario = calcular_UF_necessario(Ai, DF, Ao_meta)
-                    
-                    if UF_necessario > 1:
-                        st.error(f"⚠️ **Impossível atingir Ao = {Ao_meta*100:.1f}%**")
-                        st.warning(f"""
-                        Com MTBF={MTBF:.0f}h, MTTR={MTTR:.1f}h e DF={DF*100:.0f}%:
-                        - Ai = {Ai*100:.2f}%
-                        - Aa = {(Ai*DF)*100:.2f}%
-                        - Ao máximo possível = {(Ai*DF)*100:.2f}%
-                        
-                        **Sugestões:**
-                        - Aumentar MTBF ou reduzir MTTR
-                        - Aumentar DF (reduzir paradas programadas)
-                        - Reduzir meta de Ao
-                        """)
-                    else:
-                        st.success(f"✅ **UF Necessário: {UF_necessario*100:.2f}%**")
-                        
-                        col_a, col_b = st.columns(2)
-                        
-                        with col_a:
-                            st.metric("UF Necessário", f"{UF_necessario*100:.2f}%")
-                        
-                        with col_b:
-                            horas_operacao_necessaria = HORAS_POR_MES * DF * UF_necessario
-                            st.metric("Horas Operação Necessárias", f"{horas_operacao_necessaria:.0f}h/mês")
-                        
-                        st.info(f"""
-                        **Interpretação:**
-                        
-                        Para atingir Ao = {Ao_meta*100:.1f}%, você precisa:
-                        - **UF ≥ {UF_necessario*100:.2f}%**
-                        - Operar pelo menos **{horas_operacao_necessaria:.0f} horas/mês**
-                        - Do tempo disponível ({HORAS_POR_MES*DF:.0f}h), usar {UF_necessario*100:.1f}%
-                        """)
-                
-                elif modo_calculo == "Calcular MTBF Necessário":
-                    MTBF_necessario = calcular_MTBF_necessario(MTTR, DF, UF, Ao_meta)
-                    
-                    if MTBF_necessario == float('inf') or MTBF_necessario < 0:
-                        st.error(f"⚠️ **Impossível atingir Ao = {Ao_meta*100:.1f}%**")
-                        st.warning(f"""
-                        Com os parâmetros atuais, não é possível atingir a meta.
-                        
-                        **O problema:**
-                        - Ao_meta ({Ao_meta*100:.1f}%) > DF × UF ({(DF*UF)*100:.2f}%)
-                        
-                        **Sugestões:**
-                        - Aumentar DF (reduzir paradas programadas)
-                        - Aumentar UF (melhorar utilização)
-                        - Reduzir meta de Ao
-                        - Reduzir MTTR
-                        """)
-                    else:
-                        st.success(f"✅ **MTBF Necessário: {MTBF_necessario:.0f} horas**")
-                        
-                        Ai_necessario = calcular_disponibilidade_intrinseca(MTBF_necessario, MTTR)
-                        
-                        col_a, col_b, col_c = st.columns(3)
-                        
-                        with col_a:
-                            st.metric("MTBF Necessário", f"{MTBF_necessario:.0f}h")
-                        
-                        with col_b:
-                            st.metric("Ai Necessário", f"{Ai_necessario*100:.2f}%")
-                        
-                        with col_c:
-                            falhas_max_mes = HORAS_POR_MES / MTBF_necessario
-                            st.metric("Falhas Máx/Mês", f"{falhas_max_mes:.2f}")
-                        
-                        st.info(f"""
-                        **Interpretação:**
-                        
-                        Para atingir Ao = {Ao_meta*100:.1f}%, você precisa:
-                        - **MTBF ≥ {MTBF_necessario:.0f} horas**
-                        - Ai ≥ {Ai_necessario*100:.2f}%
-                        - Máximo de **{falhas_max_mes:.2f} falhas/mês**
-                        - Intervalo médio entre falhas: **{MTBF_necessario/24:.1f} dias**
-                        """)
-                
-                else:  # Calcular MTTR Máximo
-                    MTTR_maximo = calcular_MTTR_maximo(MTBF, DF, UF, Ao_meta)
-                    
-                    if MTTR_maximo < 0:
-                        st.error(f"⚠️ **Impossível atingir Ao = {Ao_meta*100:.1f}%**")
-                        st.warning(f"""
-                        Com MTBF={MTBF:.0f}h, DF={DF*100:.0f}% e UF={UF*100:.0f}%:
-                        
-                        **O problema:**
-                        - Ao_meta muito alta para o MTBF atual
-                        
-                        **Sugestões:**
-                        - Aumentar MTBF
-                        - Aumentar DF ou UF
-                        - Reduzir meta de Ao
-                        """)
-                    else:
-                        st.success(f"✅ **MTTR Máximo: {MTTR_maximo:.1f} horas**")
-                        
-                        Ai_minimo = calcular_disponibilidade_intrinseca(MTBF, MTTR_maximo)
-                        
-                        col_a, col_b = st.columns(2)
-                        
-                        with col_a:
-                            st.metric("MTTR Máximo", f"{MTTR_maximo:.1f}h")
-                        
-                        with col_b:
-                            st.metric("Ai Mínimo", f"{Ai_minimo*100:.2f}%")
-                        
-                        st.info(f"""
-                        **Interpretação:**
-                        
-                        Para atingir Ao = {Ao_meta*100:.1f}%, você pode ter:
-                        - **MTTR ≤ {MTTR_maximo:.1f} horas**
-                        - Ai ≥ {Ai_minimo*100:.2f}%
-                        - Tempo máximo de reparo por falha: **{MTTR_maximo:.1f} horas**
-                        """)
-            
-            except Exception as e:
-                st.error(f"❌ Erro no cálculo: {str(e)}")
-                st.exception(e)
-    
-    # ==================== TAB 2: ANÁLISE DE DEGRADAÇÃO ====================
+            st.markdown("**🟢 Meta:**")
+            st.write(f"- Ai: {Ai_meta*100:.2f}% (ideal)")
+            st.write(f"- Aa: {Aa_meta*100:.2f}%")
+            st.write(f"- Ao: {Ao_meta*100:.2f}%")
+            st.write(f"- Produção: {horas_prod_meta:.0f}h/mês")
     
     with tab2:
-        st.header("📊 Análise de Degradação e Intervalo de PM")
+        st.subheader("Análise de Degradação e Intervalo Ótimo de PM")
         
-        col1, col2 = st.columns([1, 2])
+        col_config1, col_config2 = st.columns(2)
         
-        with col1:
-            st.subheader("⚙️ Parâmetros")
-            
-            st.markdown("**Parâmetros de Confiabilidade:**")
-            
-            MTBF_deg = st.number_input("MTBF (horas)", min_value=1.0, value=300.0, step=10.0, key="deg2_mtbf")
-            MTTR_deg = st.number_input("MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="deg2_mttr")
-            
-            st.divider()
-            
-            st.markdown("**Fatores Operacionais:**")
-            
-            DF_deg = st.slider("DF - Fator de Disponibilidade (%)", min_value=50.0, max_value=100.0, value=95.0, step=0.5, key="deg2_DF") / 100
-            UF_deg = st.slider("UF - Fator de Utilização (%)", min_value=50.0, max_value=100.0, value=85.0, step=0.5, key="deg2_UF") / 100
-            
-            st.divider()
-            
-            st.markdown("**Parâmetros de Degradação:**")
-            
-            t_inicio_deg = st.slider("Tempo até Início do Desgaste (h)", min_value=50.0, max_value=500.0, value=200.0, step=10.0, key="deg2_t_inicio")
-            beta_deg = st.slider("Intensidade da Degradação (β)", min_value=1.0, max_value=5.0, value=2.5, step=0.1, key="deg2_beta")
-            Ao_minima = st.slider("Ao Mínima Aceitável (%)", min_value=70.0, max_value=95.0, value=85.0, step=1.0, key="deg2_Ao_min") / 100
+        with col_config1:
+            Ao_minima_pm = st.slider(
+                "Ao Mínima Aceitável para PM (%)",
+                min_value=70.0,
+                max_value=95.0,
+                value=85.0,
+                step=1.0,
+                help="Disponibilidade mínima antes de fazer PM"
+            ) / 100
         
-        with col2:
-            try:
-                lambda_base_deg = 1 / MTBF_deg
-                
-                # Encontrar intervalo ótimo
-                resultado_deg = encontrar_intervalo_PM_por_disponibilidade(
-                    lambda_base=lambda_base_deg,
-                    beta_desgaste=beta_deg,
-                    t_inicio_desgaste=t_inicio_deg,
-                    MTTR=MTTR_deg,
-                    DF=DF_deg,
-                    UF=UF_deg,
-                    Ao_minima=Ao_minima,
-                    t_max=t_inicio_deg * 3
-                )
-                
-                # Converter para calendário
-                T_cal_deg = resultado_deg['T_otimo'] / (DF_deg * UF_deg)
-                
-                # Métricas
-                st.subheader("🎯 Intervalo Ótimo de PM")
-                
-                col_a, col_b, col_c = st.columns(3)
-                
-                with col_a:
-                    st.metric("Intervalo PM", f"{resultado_deg['T_otimo']:.0f}h operadas")
-                
-                with col_b:
-                    st.metric("Calendário", f"{T_cal_deg/24:.1f} dias")
-                
-                with col_c:
-                    # Calcular frequência baseada em horas operadas mensais estimadas
-                    horas_op_mes = HORAS_POR_MES * DF_deg * UF_deg
-                    st.metric("PMs/Mês", f"{horas_op_mes/resultado_deg['T_otimo']:.2f}")
-                
-                col_a, col_b, col_c = st.columns(3)
-                
-                with col_a:
-                    st.metric("Ao no Ponto", f"{resultado_deg['disponibilidade']*100:.1f}%")
-                
-                with col_b:
-                    st.metric("Confiabilidade", f"{resultado_deg['confiabilidade']*100:.1f}%")
-                
-                with col_c:
-                    st.metric("Taxa de Falha", f"{resultado_deg['taxa_falha']:.4f}")
-                
-                st.divider()
-                
-                # Gráfico
-                fig_deg = criar_grafico_degradacao_disponibilidade(resultado_deg, resultado_deg['T_otimo'], Ao_minima)
-                st.plotly_chart(fig_deg, use_container_width=True)
-                
-                # Análise
-                with st.expander("📋 Análise Detalhada"):
-                    Ai_deg = calcular_disponibilidade_intrinseca(MTBF_deg, MTTR_deg)
-                    Aa_deg = calcular_disponibilidade_alcancada(Ai_deg, DF_deg)
-                    
-                    st.markdown(f"""
-                    **Parâmetros Base:**
-                    - MTBF: {MTBF_deg:.1f}h
-                    - MTTR: {MTTR_deg:.1f}h
-                    - Ai: {Ai_deg*100:.2f}%
-                    - DF: {DF_deg*100:.2f}%
-                    - UF: {UF_deg*100:.2f}%
-                    - Aa: {Aa_deg*100:.2f}%
-                    
-                    **Degradação:**
-                    - Tempo até desgaste: {t_inicio_deg:.0f}h
-                    - Intensidade (β): {beta_deg:.1f}
-                    - Ao mínima: {Ao_minima*100:.1f}%
-                    
-                    **Resultado:**
-                    - Intervalo PM: {resultado_deg['T_otimo']:.0f}h operadas ({T_cal_deg/24:.1f} dias calendário)
-                    - Ao no ponto ótimo: {resultado_deg['disponibilidade']*100:.2f}%
-                    - Confiabilidade: {resultado_deg['confiabilidade']*100:.2f}%
-                    
-                    **Interpretação:**
-                    - A cada **{T_cal_deg/24:.1f} dias**, fazer PM para restaurar confiabilidade
-                    - Isso garante Ao ≥ {Ao_minima*100:.1f}% durante todo o ciclo
-                    - Frequência: **{(horas_op_mes/resultado_deg['T_otimo'])*12:.1f} PMs/ano**
-                    """)
+        with col_config2:
+            beta_desgaste = st.slider(
+                "Intensidade de Degradação (β)",
+                min_value=1.0,
+                max_value=5.0,
+                value=2.5,
+                step=0.1,
+                help="Quanto maior, mais rápida é a degradação"
+            )
+        
+        # Calcular intervalo de PM
+        resultado_pm = encontrar_intervalo_PM_otimo(
+            MTBF=MTBF_atual,
+            MTTR=MTTR_atual,
+            DF=DF_meta,  # Usar meta para planejamento futuro
+            UF=UF_meta,
+            Ao_minima=Ao_minima_pm,
+            beta_desgaste=beta_desgaste
+        )
+        
+        T_cal = resultado_pm['T_otimo'] / (DF_meta * UF_meta)
+        frequencia_pm_mes = horas_operadas_mes / resultado_pm['T_otimo']
+        
+        col_pm1, col_pm2, col_pm3, col_pm4 = st.columns(4)
+        
+        with col_pm1:
+            st.metric("Intervalo PM", f"{resultado_pm['T_otimo']:.0f}h operadas")
+        
+        with col_pm2:
+            st.metric("Calendário", f"{T_cal/24:.1f} dias")
+        
+        with col_pm3:
+            st.metric("PMs/Mês", f"{frequencia_pm_mes:.2f}")
+        
+        with col_pm4:
+            st.metric("PMs/Ano", f"{frequencia_pm_mes*12:.1f}")
+        
+        fig_pm = criar_grafico_degradacao(resultado_pm, resultado_pm['T_otimo'], Ao_minima_pm)
+        st.plotly_chart(fig_pm, use_container_width=True)
+        
+        with st.expander("📋 Interpretação do Intervalo de PM"):
+            st.markdown(f"""
+            **Análise do Ciclo de Degradação:**
             
-            except Exception as e:
-                st.error(f"❌ Erro: {str(e)}")
-                st.exception(e)
-    
-    # ==================== TAB 3: MATRIZ DE DISPONIBILIDADE ====================
+            1. **Fase Estável** (0 a {resultado_pm['t_inicio_desgaste']:.0f}h):
+               - Taxa de falha constante
+               - Disponibilidade alta e estável
+               - Período ideal de operação
+            
+            2. **Início da Degradação** ({resultado_pm['t_inicio_desgaste']:.0f}h):
+               - Componentes começam a desgastar
+               - Taxa de falha aumenta gradualmente
+            
+            3. **Ponto Ótimo de PM** ({resultado_pm['T_otimo']:.0f}h operadas):
+               - Disponibilidade: {resultado_pm['disponibilidade']*100:.2f}%
+               - Confiabilidade: {resultado_pm['confiabilidade']*100:.2f}%
+               - Taxa de falha: {resultado_pm['taxa_falha']:.4f}
+               - **Momento ideal para intervenção preventiva**
+            
+            **Recomendação de Manutenção:**
+            - Fazer PM a cada **{T_cal/24:.1f} dias** (calendário)
+            - Ou a cada **{resultado_pm['T_otimo']:.0f} horas** de operação
+            - Frequência: **{frequencia_pm_mes:.2f} PMs/mês** ou **{frequencia_pm_mes*12:.1f} PMs/ano**
+            - Isso garante Ao ≥ {Ao_minima_pm*100:.1f}% durante todo o ciclo
+            
+            💡 **Benefício:** Evita degradação severa e mantém alta disponibilidade.
+            """)
     
     with tab3:
-        st.header("🗺️ Matriz de Disponibilidade")
+        st.subheader("Matriz de Disponibilidade: MTBF vs MTTR")
         
-        st.markdown("""
-        **Visualize a relação entre MTBF, MTTR e DF/UF através de mapas de calor.**
+        st.markdown(f"""
+        **Explore diferentes cenários de MTBF e MTTR**
         
-        Escolha qual parâmetro fixar e veja como os outros se relacionam para atingir diferentes níveis de Ao.
+        Configuração atual: DF = {DF_meta*100:.0f}%, UF = {UF_meta*100:.0f}%
         """)
         
-        col1, col2 = st.columns([1, 2])
+        col_matriz1, col_matriz2 = st.columns(2)
         
-        with col1:
-            st.subheader("⚙️ Configuração da Matriz")
-            
-            parametro_fixo = st.selectbox(
-                "Parâmetro Fixo:",
-                ["MTBF", "MTTR", "DF"],
-                help="Qual parâmetro manter constante"
-            )
-            
-            if parametro_fixo == "MTBF":
-                valor_fixo_matriz = st.number_input("Valor do MTBF (horas)", min_value=10.0, value=300.0, step=10.0, key="matriz_mtbf")
-                
-                st.markdown("**Parâmetros Variáveis:**")
-                mttr_min = st.number_input("MTTR Mínimo (h)", min_value=0.1, value=1.0, step=0.5, key="matriz_mttr_min")
-                mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.1, value=20.0, step=0.5, key="matriz_mttr_max")
-                
-                df_min = st.number_input("DF Mínimo (%)", min_value=50.0, value=70.0, step=1.0, key="matriz_df_min") / 100
-                df_max = st.number_input("DF Máximo (%)", min_value=50.0, value=100.0, step=1.0, key="matriz_df_max") / 100
-                
-                param1_name = "MTTR (horas)"
-                param2_name = "DF (%)"
-                
-            elif parametro_fixo == "MTTR":
-                valor_fixo_matriz = st.number_input("Valor do MTTR (horas)", min_value=0.1, value=5.0, step=0.5, key="matriz_mttr")
-                
-                st.markdown("**Parâmetros Variáveis:**")
-                mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=10.0, value=100.0, step=10.0, key="matriz_mtbf_min")
-                mtbf_max = st.number_input("MTBF Máximo (h)", min_value=10.0, value=500.0, step=10.0, key="matriz_mtbf_max")
-                
-                df_min = st.number_input("DF Mínimo (%)", min_value=50.0, value=70.0, step=1.0, key="matriz_df_min2") / 100
-                df_max = st.number_input("DF Máximo (%)", min_value=50.0, value=100.0, step=1.0, key="matriz_df_max2") / 100
-                
-                param1_name = "MTBF (horas)"
-                param2_name = "DF (%)"
-                
-            else:  # DF fixo
-                valor_fixo_matriz = st.slider("Valor do DF (%)", min_value=50.0, max_value=100.0, value=95.0, step=1.0, key="matriz_df") / 100
-                
-                st.markdown("**Parâmetros Variáveis:**")
-                mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=10.0, value=100.0, step=10.0, key="matriz_mtbf_min2")
-                mtbf_max = st.number_input("MTBF Máximo (h)", min_value=10.0, value=500.0, step=10.0, key="matriz_mtbf_max2")
-                
-                mttr_min = st.number_input("MTTR Mínimo (h)", min_value=0.1, value=1.0, step=0.5, key="matriz_mttr_min2")
-                mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.1, value=20.0, step=0.5, key="matriz_mttr_max2")
-                
-                param1_name = "MTBF (horas)"
-                param2_name = "MTTR (horas)"
-            
-            UF_matriz = st.slider("UF - Fator de Utilização (%)", min_value=50.0, max_value=100.0, value=85.0, step=1.0, key="matriz_uf") / 100
-            
-            resolucao = st.slider("Resolução da Matriz", min_value=10, max_value=50, value=25, step=5, help="Mais pontos = mais preciso mas mais lento")
+        with col_matriz1:
+            mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=50.0, value=100.0, step=10.0, key="mtbf_min")
+            mtbf_max = st.number_input("MTBF Máximo (h)", min_value=50.0, value=500.0, step=10.0, key="mtbf_max")
         
-        with col2:
-            try:
-                st.subheader(f"🗺️ Mapa de Calor: Ao vs {param1_name} vs {param2_name}")
-                st.caption(f"Parâmetro fixo: {parametro_fixo} = {valor_fixo_matriz if parametro_fixo != 'DF' else valor_fixo_matriz*100}{'h' if parametro_fixo != 'DF' else '%'}, UF = {UF_matriz*100:.0f}%")
-                
-                # Gerar matriz
-                if parametro_fixo == "MTBF":
-                    range_param1 = (mttr_min, mttr_max)
-                    range_param2 = (df_min, df_max)
-                elif parametro_fixo == "MTTR":
-                    range_param1 = (mtbf_min, mtbf_max)
-                    range_param2 = (df_min, df_max)
-                else:  # DF
-                    range_param1 = (mtbf_min, mtbf_max)
-                    range_param2 = (mttr_min, mttr_max)
-                
-                matriz, param1_vals, param2_vals = gerar_matriz_disponibilidade(
-                    parametro_fixo=parametro_fixo,
-                    valor_fixo=valor_fixo_matriz,
-                    range_param1=range_param1,
-                    range_param2=range_param2,
-                    DF=valor_fixo_matriz if parametro_fixo == "DF" else 0.95,
-                    UF=UF_matriz,
-                    n_pontos=resolucao
-                )
-                
-                # Converter param2_vals para percentual se for DF
-                if parametro_fixo in ["MTBF", "MTTR"]:
-                    param2_vals_display = param2_vals * 100
-                    param2_name_display = "DF (%)"
-                else:
-                    param2_vals_display = param2_vals
-                    param2_name_display = param2_name
-                
-                # Criar heatmap
-                fig_matriz = criar_heatmap_disponibilidade(
-                    matriz=matriz,
-                    param1_vals=param1_vals,
-                    param2_vals=param2_vals_display,
-                    param1_name=param1_name,
-                    param2_name=param2_name_display,
-                    titulo=f"Disponibilidade Operacional (Ao) - {parametro_fixo} fixo"
-                )
-                
-                st.plotly_chart(fig_matriz, use_container_width=True)
-                
-                # Análise
-                with st.expander("📊 Análise da Matriz"):
-                    Ao_max = np.max(matriz)
-                    Ao_min = np.min(matriz)
-                    Ao_media = np.mean(matriz)
-                    
-                    idx_max = np.unravel_index(np.argmax(matriz), matriz.shape)
-                    idx_min = np.unravel_index(np.argmin(matriz), matriz.shape)
-                    
-                    st.markdown(f"""
-                    **Estatísticas da Matriz:**
-                    - Ao Máximo: **{Ao_max:.1f}%** (melhor cenário)
-                    - Ao Mínimo: **{Ao_min:.1f}%** (pior cenário)
-                    - Ao Médio: **{Ao_media:.1f}%**
-                    
-                    **Melhor Cenário:**
-                    - {param1_name}: {param1_vals[idx_max[0]]:.1f}
-                    - {param2_name_display}: {param2_vals_display[idx_max[1]]:.1f}
-                    - Ao: {Ao_max:.1f}%
-                    
-                    **Pior Cenário:**
-                    - {param1_name}: {param1_vals[idx_min[0]]:.1f}
-                    - {param2_name_display}: {param2_vals_display[idx_min[1]]:.1f}
-                    - Ao: {Ao_min:.1f}%
-                    
-                    **Interpretação:**
-                    - Zonas **verdes**: Alta disponibilidade operacional (>90%)
-                    - Zonas **amarelas**: Disponibilidade moderada (80-90%)
-                    - Zonas **vermelhas**: Baixa disponibilidade (<80%)
-                    
-                    Use esta matriz para:
-                    - Definir metas de MTBF/MTTR baseadas em Ao desejado
-                    - Avaliar impacto de melhorias na confiabilidade
-                    - Planejar ações de manutenção
-                    """)
-                
-                # Export da matriz
-                df_matriz = pd.DataFrame(
-                    matriz,
-                    index=[f"{param1_name}: {v:.1f}" for v in param1_vals],
-                    columns=[f"{param2_name_display}: {v:.1f}" for v in param2_vals_display]
-                )
-                
-                csv_matriz = df_matriz.to_csv(encoding='utf-8-sig')
-                st.download_button(
-                    label="📥 Download Matriz (CSV)",
-                    data=csv_matriz,
-                    file_name="matriz_disponibilidade.csv",
-                    mime="text/csv"
-                )
-            
-            except Exception as e:
-                st.error(f"❌ Erro: {str(e)}")
-                st.exception(e)
+        with col_matriz2:
+            mttr_min = st.number_input("MTTR Mínimo (h)", min_value=0.5, value=1.0, step=0.5, key="mttr_min")
+            mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.5, value=20.0, step=0.5, key="mttr_max")
+        
+        fig_matriz = criar_grafico_matriz_mtbf_mttr(
+            DF=DF_meta,
+            UF=UF_meta,
+            mtbf_range=(mtbf_min, mtbf_max),
+            mttr_range=(mttr_min, mttr_max),
+            n_pontos=30
+        )
+        st.plotly_chart(fig_matriz, use_container_width=True)
+        
+        # Marcar ponto atual e meta
+        st.info(f"""
+        **Sua Posição na Matriz:**
+        
+        🔴 **Atual:** MTBF = {MTBF_atual:.0f}h, MTTR = {MTTR_atual:.1f}h → Ao = {Ao_atual*100:.2f}%
+        
+        🟢 **Para atingir meta (Ao = {Ao_meta*100:.2f}%):**
+        - Opção 1: MTBF ≥ {gap_analise['MTBF_necessario']:.0f}h (mantendo MTTR = {MTTR_atual:.1f}h)
+        - Opção 2: MTTR ≤ {gap_analise['MTTR_maximo']:.1f}h (mantendo MTBF = {MTBF_atual:.0f}h)
+        - Opção 3: Combinação de melhorias em ambos
+        
+        **Interpretação das Cores:**
+        - 🟢 Verde (>90%): Excelente disponibilidade
+        - 🟡 Amarelo (80-90%): Disponibilidade adequada
+        - 🟠 Laranja (70-80%): Atenção necessária
+        - 🔴 Vermelho (<70%): Crítico - ação urgente
+        """)
+    
+    st.divider()
+    
+    # ==================== EXPORT ====================
+    
+    st.header("💾 Exportar Resultados")
+    
+    # Criar DataFrame consolidado
+    df_export = pd.DataFrame({
+        'Categoria': [
+            'MTBF Atual', 'MTTR Atual', 'DF Atual', 'UF Atual',
+            'Ai Atual', 'Aa Atual', 'Ao Atual', 'Horas Produção Atual',
+            'DF Meta', 'UF Meta', 'Ao Meta', 'Horas Produção Meta',
+            'Gap Ao (%)', 'Gap Horas',
+            'MTBF Necessário', 'MTTR Máximo',
+            'Melhoria MTBF (%)', 'Melhoria MTTR (%)',
+            'Falhas Esperadas/Mês', 'Tempo Reparo Total/Mês',
+            'Intervalo PM Ótimo (h)', 'Intervalo PM (dias)',
+            'Frequência PM/Mês', 'Frequência PM/Ano'
+        ],
+        'Valor': [
+            f"{MTBF_atual:.1f}h", f"{MTTR_atual:.1f}h", f"{DF_atual*100:.2f}%", f"{UF_atual*100:.2f}%",
+            f"{Ai_atual*100:.2f}%", f"{Aa_atual*100:.2f}%", f"{Ao_atual*100:.2f}%", f"{horas_prod_atual:.0f}h",
+            f"{DF_meta*100:.2f}%", f"{UF_meta*100:.2f}%", f"{Ao_meta*100:.2f}%", f"{horas_prod_meta:.0f}h",
+            f"{gap*100:.2f}%", f"{delta_horas:.0f}h",
+            f"{gap_analise['MTBF_necessario']:.0f}h" if gap_analise['MTBF_necessario'] != float('inf') else "N/A",
+            f"{gap_analise['MTTR_maximo']:.1f}h" if gap_analise['MTTR_maximo'] >= 0 else "N/A",
+            f"{gap_analise['melhoria_MTBF_percentual']:.1f}%" if gap_analise['melhoria_MTBF_percentual'] != float('inf') else "N/A",
+            f"{gap_analise['melhoria_MTTR_percentual']:.1f}%",
+            f"{num_falhas_atual:.2f}", f"{tempo_reparo_total_atual:.1f}h",
+            f"{resultado_pm['T_otimo']:.0f}h", f"{T_cal/24:.1f} dias",
+            f"{frequencia_pm_mes:.2f}", f"{frequencia_pm_mes*12:.1f}"
+        ]
+    })
+    
+    csv_export = df_export.to_csv(index=False, encoding='utf-8-sig')
+    
+    col_exp1, col_exp2 = st.columns(2)
+    
+    with col_exp1:
+        st.download_button(
+            label="📥 Download Análise Completa (CSV)",
+            data=csv_export,
+            file_name="analise_disponibilidade_completa.csv",
+            mime="text/csv"
+        )
+    
+    with col_exp2:
+        # Criar relatório em texto
+        relatorio = f"""
+RELATÓRIO DE DISPONIBILIDADE OPERACIONAL
+==========================================
+
+DATA: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}
+
+SITUAÇÃO ATUAL
+--------------
+MTBF: {MTBF_atual:.1f}h
+MTTR: {MTTR_atual:.1f}h
+DF: {DF_atual*100:.2f}%
+UF: {UF_atual*100:.2f}%
+
+Disponibilidade Intrínseca (Ai): {Ai_atual*100:.2f}%
+Disponibilidade Alcançada (Aa): {Aa_atual*100:.2f}%
+Disponibilidade Operacional (Ao): {Ao_atual*100:.2f}%
+
+Horas Produção/Mês: {horas_prod_atual:.0f}h
+Falhas Esperadas/Mês: {num_falhas_atual:.2f}
+Tempo Total em Reparo/Mês: {tempo_reparo_total_atual:.1f}h
+
+META MENSAL
+-----------
+DF Meta: {DF_meta*100:.2f}%
+UF Meta: {UF_meta*100:.2f}%
+Ao Meta: {Ao_meta*100:.2f}%
+Horas Produção Meta: {horas_prod_meta:.0f}h
+
+GAP DE DESEMPENHO
+-----------------
+Gap Ao: {gap*100:.2f}% ({gap_analise['gap_percentual']:.1f}% relativo)
+Gap Horas: {delta_horas:+.0f}h/mês
+
+RECOMENDAÇÕES PARA ATINGIR META
+--------------------------------
+Opção 1 - Melhorar MTBF:
+  MTBF Necessário: {gap_analise['MTBF_necessario']:.0f}h
+  Melhoria: +{gap_analise['melhoria_MTBF_percentual']:.1f}%
+
+Opção 2 - Melhorar MTTR:
+  MTTR Máximo: {gap_analise['MTTR_maximo']:.1f}h
+  Redução: -{gap_analise['melhoria_MTTR_percentual']:.1f}%
+
+PLANO DE MANUTENÇÃO PREVENTIVA
+-------------------------------
+Intervalo PM Ótimo: {resultado_pm['T_otimo']:.0f}h operadas ({T_cal/24:.1f} dias calendário)
+Frequência: {frequencia_pm_mes:.2f} PMs/mês ({frequencia_pm_mes*12:.1f} PMs/ano)
+Ao no Ponto Ótimo: {resultado_pm['disponibilidade']*100:.2f}%
+Confiabilidade: {resultado_pm['confiabilidade']*100:.2f}%
+
+==========================================
+Fim do Relatório
+        """
+        
+        st.download_button(
+            label="📄 Download Relatório (TXT)",
+            data=relatorio,
+            file_name="relatorio_disponibilidade.txt",
+            mime="text/plain"
+        )
     
     # ==================== RODAPÉ ====================
     
     st.divider()
     st.markdown("""
-    **Sobre esta ferramenta v3.0:**
+    **Sobre esta ferramenta v4.0:**
     
-    Calculadora focada em **disponibilidade operacional** para cumprimento de metas de produção.
+    Calculadora simplificada focada em **comparação entre meta e realizado**.
     
-    **Funcionalidades:**
-    - 🎯 Cálculo de Ao baseado em MTBF, MTTR, DF e UF
-    - 🔄 Cálculo reverso: determine parâmetros necessários para meta de Ao
-    - 📊 Análise de degradação com intervalo ótimo de PM
-    - 🗺️ Matriz interativa relacionando MTBF, MTTR e DF
+    **Entradas necessárias:**
+    - 🎯 Meta mensal: DF e UF desejados
+    - 📊 Desempenho atual: MTBF e MTTR do mês anterior
+    
+    **Saídas fornecidas:**
+    - ✅ Análise completa de disponibilidade (Ai, Aa, Ao)
+    - ✅ Gap e recomendações de melhoria
+    - ✅ Intervalo ótimo de manutenção preventiva
+    - ✅ Matriz interativa MTBF vs MTTR
+    - ✅ Visualizações comparativas
     
     **Fórmulas:**
 
@@ -994,6 +923,7 @@ def main():
     **Referências:**
     - IEC 60300-3-1: Dependability management
     - MIL-HDBK-338B: Electronic Reliability Design Handbook
+    - ISO 14224: Petroleum and natural gas industries - Collection and exchange of reliability and maintenance data
     """)
 
 if __name__ == "__main__":
