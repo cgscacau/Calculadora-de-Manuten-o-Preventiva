@@ -1,6 +1,6 @@
 """
 Calculadora de Disponibilidade Operacional - Versão Simplificada
-Versão: 4.0.0 (Meta vs Realizado)
+Versão: 4.1.0 (Com Marcadores na Matriz)
 Autor: Sistema de Engenharia de Confiabilidade
 """
 
@@ -329,11 +329,18 @@ def criar_grafico_degradacao(resultado: dict, T_otimo: float, Ao_minima: float) 
     
     return fig
 
-def criar_grafico_matriz_mtbf_mttr(DF: float, UF: float, 
-                                     mtbf_range: Tuple[float, float] = (100, 500),
-                                     mttr_range: Tuple[float, float] = (1, 20),
-                                     n_pontos: int = 30) -> go.Figure:
-    """Cria matriz de disponibilidade MTBF vs MTTR."""
+def criar_grafico_matriz_mtbf_mttr(
+    DF: float, 
+    UF: float,
+    MTBF_atual: float,
+    MTTR_atual: float,
+    MTBF_necessario: float,
+    MTTR_maximo: float,
+    mtbf_range: Tuple[float, float] = (100, 500),
+    mttr_range: Tuple[float, float] = (1, 20),
+    n_pontos: int = 30
+) -> go.Figure:
+    """Cria matriz de disponibilidade MTBF vs MTTR com marcadores."""
     
     mtbf_vals = np.linspace(mtbf_range[0], mtbf_range[1], n_pontos)
     mttr_vals = np.linspace(mttr_range[0], mttr_range[1], n_pontos)
@@ -346,20 +353,109 @@ def criar_grafico_matriz_mtbf_mttr(DF: float, UF: float,
             Ao = calcular_disponibilidade_operacional(Ai, DF, UF)
             matriz[i, j] = Ao * 100
     
-    fig = go.Figure(data=go.Heatmap(
+    # Criar heatmap
+    fig = go.Figure()
+    
+    # Adicionar heatmap
+    fig.add_trace(go.Heatmap(
         z=matriz,
         x=mttr_vals,
         y=mtbf_vals,
         colorscale='RdYlGn',
         colorbar=dict(title="Ao (%)"),
-        hovertemplate='MTTR: %{x:.1f}h<br>MTBF: %{y:.1f}h<br>Ao: %{z:.1f}%<extra></extra>'
+        hovertemplate='MTTR: %{x:.1f}h<br>MTBF: %{y:.1f}h<br>Ao: %{z:.1f}%<extra></extra>',
+        name='Disponibilidade'
     ))
+    
+    # Marcador: Posição ATUAL (vermelho)
+    fig.add_trace(go.Scatter(
+        x=[MTTR_atual],
+        y=[MTBF_atual],
+        mode='markers+text',
+        marker=dict(
+            size=20,
+            color='red',
+            symbol='x',
+            line=dict(width=3, color='white')
+        ),
+        text=['ATUAL'],
+        textposition='top center',
+        textfont=dict(size=12, color='white', family='Arial Black'),
+        name='Posição Atual',
+        hovertemplate=f'<b>ATUAL</b><br>MTTR: {MTTR_atual:.1f}h<br>MTBF: {MTBF_atual:.0f}h<extra></extra>'
+    ))
+    
+    # Marcador: MTBF Necessário (mantendo MTTR atual) - azul
+    if MTBF_necessario != float('inf') and mtbf_range[0] <= MTBF_necessario <= mtbf_range[1]:
+        fig.add_trace(go.Scatter(
+            x=[MTTR_atual],
+            y=[MTBF_necessario],
+            mode='markers+text',
+            marker=dict(
+                size=18,
+                color='cyan',
+                symbol='star',
+                line=dict(width=2, color='white')
+            ),
+            text=['META MTBF'],
+            textposition='bottom center',
+            textfont=dict(size=10, color='white', family='Arial Black'),
+            name='Meta MTBF',
+            hovertemplate=f'<b>META MTBF</b><br>MTTR: {MTTR_atual:.1f}h<br>MTBF: {MTBF_necessario:.0f}h<extra></extra>'
+        ))
+        
+        # Linha conectando atual à meta MTBF
+        fig.add_trace(go.Scatter(
+            x=[MTTR_atual, MTTR_atual],
+            y=[MTBF_atual, MTBF_necessario],
+            mode='lines',
+            line=dict(color='cyan', width=2, dash='dash'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+    
+    # Marcador: MTTR Máximo (mantendo MTBF atual) - amarelo
+    if MTTR_maximo >= 0 and mttr_range[0] <= MTTR_maximo <= mttr_range[1]:
+        fig.add_trace(go.Scatter(
+            x=[MTTR_maximo],
+            y=[MTBF_atual],
+            mode='markers+text',
+            marker=dict(
+                size=18,
+                color='yellow',
+                symbol='diamond',
+                line=dict(width=2, color='black')
+            ),
+            text=['META MTTR'],
+            textposition='top right',
+            textfont=dict(size=10, color='black', family='Arial Black'),
+            name='Meta MTTR',
+            hovertemplate=f'<b>META MTTR</b><br>MTTR: {MTTR_maximo:.1f}h<br>MTBF: {MTBF_atual:.0f}h<extra></extra>'
+        ))
+        
+        # Linha conectando atual à meta MTTR
+        fig.add_trace(go.Scatter(
+            x=[MTTR_atual, MTTR_maximo],
+            y=[MTBF_atual, MTBF_atual],
+            mode='lines',
+            line=dict(color='yellow', width=2, dash='dash'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
     
     fig.update_layout(
         title=f"Matriz de Disponibilidade (DF={DF*100:.0f}%, UF={UF*100:.0f}%)",
         xaxis_title="MTTR (horas)",
         yaxis_title="MTBF (horas)",
-        height=600
+        height=700,
+        showlegend=True,
+        legend=dict(
+            x=1.02,
+            y=1,
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor='black',
+            borderwidth=1
+        )
     )
     
     return fig
@@ -378,7 +474,7 @@ def main():
     - ✅ Gap entre situação atual e meta
     - ✅ Recomendações de melhoria (MTBF e MTTR)
     - ✅ Intervalo ótimo de manutenção preventiva
-    - ✅ Matriz de disponibilidade interativa
+    - ✅ Matriz de disponibilidade interativa **com marcadores visuais**
     """)
     
     st.divider()
@@ -408,7 +504,7 @@ def main():
             help="Meta de utilização do tempo disponível"
         ) / 100
         
-        Ao_meta = DF_meta * UF_meta  # Simplificação: assumindo Ai = 1 para meta
+        Ao_meta = DF_meta * UF_meta
         
         st.info(f"""
         **Meta Combinada:**
@@ -463,8 +559,8 @@ def main():
     Ao_atual = calcular_disponibilidade_operacional(Ai_atual, DF_atual, UF_atual)
     horas_prod_atual = calcular_horas_producao(Ao_atual)
     
-    # Situação Meta (assumindo melhorias em MTBF/MTTR)
-    Ai_meta = 1.0  # Meta ideal
+    # Situação Meta
+    Ai_meta = 1.0
     Aa_meta = calcular_disponibilidade_alcancada(Ai_meta, DF_meta)
     horas_prod_meta = calcular_horas_producao(Ao_meta)
     
@@ -681,7 +777,7 @@ def main():
         resultado_pm = encontrar_intervalo_PM_otimo(
             MTBF=MTBF_atual,
             MTTR=MTTR_atual,
-            DF=DF_meta,  # Usar meta para planejamento futuro
+            DF=DF_meta,
             UF=UF_meta,
             Ao_minima=Ao_minima_pm,
             beta_desgaste=beta_desgaste
@@ -742,37 +838,60 @@ def main():
         **Explore diferentes cenários de MTBF e MTTR**
         
         Configuração atual: DF = {DF_meta*100:.0f}%, UF = {UF_meta*100:.0f}%
+        
+        **Legenda dos Marcadores:**
+        - 🔴 **X Vermelho**: Sua posição ATUAL
+        - 🔵 **Estrela Azul**: Meta melhorando MTBF (mantendo MTTR)
+        - 🟡 **Diamante Amarelo**: Meta melhorando MTTR (mantendo MTBF)
         """)
         
         col_matriz1, col_matriz2 = st.columns(2)
         
         with col_matriz1:
-            mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=5.0, value=100.0, step=10.0, key="mtbf_min")
-            mtbf_max = st.number_input("MTBF Máximo (h)", min_value=200.0, value=500.0, step=5.0, key="mtbf_max")
+            mtbf_min = st.number_input("MTBF Mínimo (h)", min_value=50.0, value=100.0, step=10.0, key="mtbf_min")
+            mtbf_max = st.number_input("MTBF Máximo (h)", min_value=50.0, value=500.0, step=10.0, key="mtbf_max")
         
         with col_matriz2:
             mttr_min = st.number_input("MTTR Mínimo (h)", min_value=0.5, value=1.0, step=0.5, key="mttr_min")
-            mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.5, value=50.0, step=0.5, key="mttr_max")
+            mttr_max = st.number_input("MTTR Máximo (h)", min_value=0.5, value=20.0, step=0.5, key="mttr_max")
         
         fig_matriz = criar_grafico_matriz_mtbf_mttr(
             DF=DF_meta,
             UF=UF_meta,
+            MTBF_atual=MTBF_atual,
+            MTTR_atual=MTTR_atual,
+            MTBF_necessario=gap_analise['MTBF_necessario'],
+            MTTR_maximo=gap_analise['MTTR_maximo'],
             mtbf_range=(mtbf_min, mtbf_max),
             mttr_range=(mttr_min, mttr_max),
             n_pontos=30
         )
         st.plotly_chart(fig_matriz, use_container_width=True)
         
-        # Marcar ponto atual e meta
+        # Análise detalhada
         st.info(f"""
-        **Sua Posição na Matriz:**
+        **Análise da Matriz:**
         
-        🔴 **Atual:** MTBF = {MTBF_atual:.0f}h, MTTR = {MTTR_atual:.1f}h → Ao = {Ao_atual*100:.2f}%
+        🔴 **Posição Atual:**
+        - MTBF = {MTBF_atual:.0f}h, MTTR = {MTTR_atual:.1f}h
+        - Ao atual = {Ao_atual*100:.2f}%
         
         🟢 **Para atingir meta (Ao = {Ao_meta*100:.2f}%):**
-        - Opção 1: MTBF ≥ {gap_analise['MTBF_necessario']:.0f}h (mantendo MTTR = {MTTR_atual:.1f}h)
-        - Opção 2: MTTR ≤ {gap_analise['MTTR_maximo']:.1f}h (mantendo MTBF = {MTBF_atual:.0f}h)
-        - Opção 3: Combinação de melhorias em ambos
+        
+        **Opção 1 - Melhorar MTBF (estrela azul):**
+        - MTBF necessário: {gap_analise['MTBF_necessario']:.0f}h
+        - Melhoria: +{gap_analise['melhoria_MTBF_percentual']:.1f}%
+        - Mantém MTTR em {MTTR_atual:.1f}h
+        
+        **Opção 2 - Melhorar MTTR (diamante amarelo):**
+        - MTTR máximo: {gap_analise['MTTR_maximo']:.1f}h
+        - Redução: -{gap_analise['melhoria_MTTR_percentual']:.1f}%
+        - Mantém MTBF em {MTBF_atual:.0f}h
+        
+        **Opção 3 - Combinação:**
+        - Melhore ambos parcialmente
+        - Exemplo: MTBF +15% E MTTR -15%
+        - Resultado mais sustentável
         
         **Interpretação das Cores:**
         - 🟢 Verde (>90%): Excelente disponibilidade
@@ -828,7 +947,6 @@ def main():
         )
     
     with col_exp2:
-        # Criar relatório em texto
         relatorio = f"""
 RELATÓRIO DE DISPONIBILIDADE OPERACIONAL
 ==========================================
@@ -894,7 +1012,7 @@ Fim do Relatório
     
     st.divider()
     st.markdown("""
-    **Sobre esta ferramenta v4.0:**
+    **Sobre esta ferramenta v4.1:**
     
     Calculadora simplificada focada em **comparação entre meta e realizado**.
     
@@ -906,8 +1024,14 @@ Fim do Relatório
     - ✅ Análise completa de disponibilidade (Ai, Aa, Ao)
     - ✅ Gap e recomendações de melhoria
     - ✅ Intervalo ótimo de manutenção preventiva
-    - ✅ Matriz interativa MTBF vs MTTR
+    - ✅ **Matriz interativa com marcadores visuais** 🆕
     - ✅ Visualizações comparativas
+    
+    **Novidade v4.1:**
+    - 🔴 Marcador vermelho mostra sua posição atual na matriz
+    - 🔵 Marcador azul mostra meta melhorando MTBF
+    - 🟡 Marcador amarelo mostra meta melhorando MTTR
+    - Linhas tracejadas conectam posição atual às metas
     
     **Fórmulas:**
 
@@ -923,7 +1047,7 @@ Fim do Relatório
     **Referências:**
     - IEC 60300-3-1: Dependability management
     - MIL-HDBK-338B: Electronic Reliability Design Handbook
-    - ISO 14224: Petroleum and natural gas industries - Collection and exchange of reliability and maintenance data
+    - ISO 14224: Petroleum and natural gas industries
     """)
 
 if __name__ == "__main__":
